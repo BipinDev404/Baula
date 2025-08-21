@@ -1,0 +1,1365 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8" />
+  <title>BAULA</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      background-color: #1e1e1e;
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      text-align: center;
+      color: white;
+      user-select: none;
+    }
+
+    h1 {
+      margin: 20px;
+      font-size: 2.5rem;
+    }
+
+    canvas {
+      margin-top: 100px;
+      background: #333;
+      border: 4px solid #ccc;
+      border-radius: 15px;
+      outline: none;
+      /* Add outline: none; to prevent blue focus ring if desired */
+    }
+  </style>
+</head>
+
+<body>
+
+  <canvas id="gameCanvas" width="1400" height="600" tabindex="0"></canvas>
+
+  <script>
+    const canvas = document.getElementById("gameCanvas");
+    const ctx = canvas.getContext("2d");
+    canvas.focus(); // Focus canvas for keyboard events
+
+    // Player (Ball)
+    const ball = {
+      x: 100,
+      y: 300,
+      width: 50,
+      height: 50,
+      velocityY: 0,
+      jumpForce: 12,
+      gravity: 0.6,
+      grounded: true,
+      bounciness: 0.7,
+      rotation: 0,
+      rotationSpeed: 0.03,
+      jumpsRemaining: 1, // Added for the "one jump" feature
+      maxJumps: 1,       // Maximum number of extra jumps (1 for a double jump, 0 for single jump)
+    };
+
+    let obstacles = [];
+    let frames = 0;
+    let score = 0;
+    let gameOver = false;
+    let waitingForRestart = false;
+    let highScore = localStorage.getItem('highScore') ? parseInt(localStorage.getItem('highScore')) : 0;
+    let newHighScore = false;
+    let nextObstacleFrame = 0;
+    let gameState = "menu"; // 'menu', 'playing', 'settings', 'about', 'gameover', 'commands'
+    let menuOptions = ["Play", "Settings", "About"];
+    let selectedMenu = 0;
+    let menuHover = -1;
+    let menuBalls = Array.from({ length: 10 }, () => ({
+      x: Math.random() * 1400,
+      y: Math.random() * 600,
+      r: 20 + Math.random() * 20,
+      dx: -1 - Math.random() * 2,
+      color: `rgba(${100 + Math.random() * 155},${200 + Math.random() * 55},${100 + Math.random() * 155},0.15)`
+    }));
+
+    // Improved settings options with grouping and tooltips
+    const settingsOptions = [
+      { group: 'Ball Physics', label: 'Jump Force', key: 'jumpForce', min: 5, max: 30, step: 1, type: 'number', initialValue: 12, defaultValue: 12, tooltip: 'How high the ball jumps.' },
+      { group: 'Ball Physics', label: 'Gravity', key: 'gravity', min: 0.1, max: 2, step: 0.05, type: 'number', initialValue: 0.6, defaultValue: 0.6, tooltip: 'How fast the ball falls.' },
+      { group: 'Ball Physics', label: 'Bounciness', key: 'bounciness', min: 0, max: 1, step: 0.05, type: 'number', initialValue: 0.7, defaultValue: 0.7, tooltip: 'How much the ball bounces on the ground.' },
+      { group: 'Obstacles', label: 'Obstacle Speed', key: 'obstacleSpeed', min: 2, max: 15, step: 0.5, type: 'number', initialValue: 6, defaultValue: 6, tooltip: 'How fast obstacles move.' },
+      { group: 'General', label: 'Default', key: 'reset', type: 'button', tooltip: 'Restore all settings to their default values.' },
+      { group: 'General', label: 'Commands', key: 'commands', type: 'button', tooltip: 'View all controls and rules.' },
+      { group: 'General', label: 'Back', key: 'back', type: 'button', tooltip: 'Return to the main menu.' },
+    ];
+    let selectedSetting = 0;
+    let isDraggingSlider = false;
+    let homeButtonHover = false; // Add this for hover effect
+    let homeImg = new Image(); // Create image object for home icon
+    homeImg.src = "assets/home.png";
+    let obstacleSpeed = settingsOptions.find(opt => opt.key === 'obstacleSpeed').initialValue;
+    let autopilotEnabled = false; // Hidden autopilot mode
+
+    let stars = [];
+    const starImg = new Image();
+    starImg.src = "assets/star.png";
+    let nextStarFrame = 0;
+    let powerUpActive = false;
+    let powerUpTimer = 0;
+    let powerUpTextTimer = 0;
+    const POWER_UP_DURATION = 600; // frames (10 seconds at 60fps)
+    const POWER_UP_TEXT_DURATION = 60; // frames for 'Power Up!' text
+    const NORMAL_JUMP_FORCE = ball.jumpForce;
+    const POWER_JUMP_FORCE = 20;
+    const GROUND_HEIGHT = 100;
+
+    // Moon image
+    const moonImg = new Image();
+    moonImg.src = 'assets/moon.png';
+
+    // Moon state
+    let moonX = 1200;
+    let moonY = 80;
+    const moonSpeed = 0.04;
+
+    // --- Add after other const declarations
+    let damageFlashTimer = 0;
+
+    // Cloud system
+    const cloudImageFiles = [
+      'assets/cloud1.png',
+      'assets/cloud2.png',
+      'assets/cloud3.png',
+      'assets/cloud4.png'
+    ];
+    const cloudImages = cloudImageFiles.map(src => {
+      const img = new Image();
+      img.src = src;
+      img.onerror = () => console.log('Failed to load cloud image:', src);
+      return img;
+    });
+
+    // Cloud layers for parallax effect
+    let cloudLayers = [
+      { // Far clouds (slow, small, transparent)
+        clouds: [],
+        speed: 0.3,
+        minSize: 80,
+        maxSize: 120,
+        opacity: 0.15,
+        spawnRate: 200
+      },
+      { // Mid clouds (medium speed, medium size)
+        clouds: [],
+        speed: 0.6,
+        minSize: 120,
+        maxSize: 180,
+        opacity: 0.25,
+        spawnRate: 150
+      },
+      { // Near clouds (fast, large, more visible)
+        clouds: [],
+        speed: 1.0,
+        minSize: 160,
+        maxSize: 240,
+        opacity: 0.35,
+        spawnRate: 100
+      }
+    ];
+
+    // Function to add initial clouds
+    function addInitialClouds() {
+      cloudLayers.forEach((layer, layerIndex) => {
+        // Add 3-5 initial clouds for each layer
+        const initialCloudCount = 3 + Math.floor(Math.random() * 3);
+        for (let i = 0; i < initialCloudCount; i++) {
+          const cloudSize = layer.minSize + Math.random() * (layer.maxSize - layer.minSize);
+          const cloudY = 40 + Math.random() * (canvas.height - GROUND_HEIGHT - 200);
+          const cloudX = Math.random() * canvas.width; // Spread across screen
+          const cloudImageIndex = Math.floor(Math.random() * cloudImages.length);
+          
+          layer.clouds.push({
+            x: cloudX,
+            y: cloudY,
+            size: cloudSize,
+            imageIndex: cloudImageIndex,
+            speed: layer.speed + (Math.random() - 0.5) * 0.2
+          });
+        }
+      });
+    }
+
+    // --- Helper function to reset game state ---
+    function resetGame() {
+      ball.x = 100;
+      ball.y = 300;
+      ball.velocityY = 0;
+      ball.rotation = 0;
+      ball.rotationSpeed = 0.03;
+      ball.grounded = true;
+      ball.jumpsRemaining = ball.maxJumps; // Reset jumps
+      obstacles = [];
+      frames = 0;
+      score = 0;
+      gameOver = false;
+      waitingForRestart = false;
+      newHighScore = false; // Reset new high score flag
+      nextObstacleFrame = 0;
+      powerUpActive = false;
+      ball.jumpForce = NORMAL_JUMP_FORCE;
+      powerUpTimer = 0;
+      powerUpTextTimer = 0;
+      damageFlashTimer = 0;
+
+      // Randomize moon position
+      moonX = canvas.width - Math.random() * 400;
+      moonY = 40 + Math.random() * 60;
+
+      // Reset cloud layers and add initial clouds
+      cloudLayers.forEach(layer => {
+        layer.clouds = [];
+      });
+      addInitialClouds(); // Add initial clouds immediately
+    }
+
+    canvas.addEventListener("click", function (e) {
+      const rect = canvas.getBoundingClientRect();
+      const mouseX = e.clientX - rect.left;
+      const mouseY = e.clientY - rect.top;
+
+      if (gameState === "menu") {
+        for (let i = 0; i < menuOptions.length; i++) {
+          const x = canvas.width / 2 - 100;
+          const y = 220 + i * 70;
+          if (
+            mouseX > x && mouseX < x + 200 &&
+            mouseY > y - 30 && mouseY < y + 30
+          ) {
+            selectedMenu = i;
+            if (menuOptions[i] === "Play") {
+              gameState = "playing";
+              resetGame();
+            } else if (menuOptions[i] === "Settings") {
+              gameState = "settings";
+              // Initialize settings values when entering settings menu
+              settingsOptions.forEach(opt => {
+                if (opt.type === 'number') {
+                  if (opt.key === 'obstacleSpeed') {
+                    opt.initialValue = obstacleSpeed;
+                  } else {
+                    opt.initialValue = ball[opt.key];
+                  }
+                }
+              });
+            } else if (menuOptions[i] === "About") {
+              gameState = "about";
+            }
+            return;
+          }
+        }
+      } else if (gameState === "settings") {
+        let yStart = 180;
+        let clickedAny = false;
+        for (let i = 0; i < settingsOptions.length; i++) {
+          const opt = settingsOptions[i];
+          const textY = yStart + i * 50;
+          if (opt.type === 'number') {
+            const sliderX = canvas.width / 2 + 50;
+            const sliderWidth = 200;
+            const sliderY = textY - 10; // Adjust for vertical centering
+            // --- Make label/value area clickable too ---
+            const labelX = canvas.width / 2 - 200; // left of slider
+            const labelWidth = 500; // covers label and value
+            const labelY = textY - 25;
+            const labelHeight = 50;
+            if (
+              mouseX > labelX && mouseX < labelX + labelWidth &&
+              mouseY > labelY && mouseY < labelY + labelHeight
+            ) {
+              selectedSetting = i; // Select this setting
+              clickedAny = true;
+              // If click is on slider bar, start dragging
+              if (
+                mouseX > sliderX && mouseX < sliderX + sliderWidth &&
+                mouseY > sliderY && mouseY < sliderY + 20
+              ) {
+                const clickRatio = (mouseX - sliderX) / sliderWidth;
+                let newValue = opt.min + clickRatio * (opt.max - opt.min);
+                newValue = Math.round(newValue / opt.step) * opt.step; // Snap to step
+                newValue = Math.max(opt.min, Math.min(opt.max, newValue)); // Clamp
+                if (opt.key === 'obstacleSpeed') {
+                  obstacleSpeed = newValue;
+                } else {
+                  ball[opt.key] = newValue;
+                }
+                opt.initialValue = newValue; // Update stored value
+                isDraggingSlider = true; // Start dragging
+              }
+              return; // Handled click
+            }
+          } else if (opt.type === 'button') {
+            // Check if Reset or Commands button was clicked
+            const buttonX = canvas.width / 2 - 150;
+            const buttonY = textY - 20;
+            const buttonWidth = 300;
+            const buttonHeight = 40;
+            if (mouseX > buttonX && mouseX < buttonX + buttonWidth &&
+              mouseY > buttonY && mouseY < buttonY + buttonHeight) {
+              selectedSetting = i;
+              clickedAny = true;
+              if (opt.key === 'reset') {
+                // Reset all settings to their default values
+                settingsOptions.forEach(opt2 => {
+                  if (opt2.type === 'number') {
+                    if (opt2.key === 'obstacleSpeed') {
+                      obstacleSpeed = opt2.defaultValue;
+                    } else {
+                      ball[opt2.key] = opt2.defaultValue;
+                    }
+                    opt2.initialValue = opt2.defaultValue;
+                  }
+                });
+                return;
+              } else if (opt.key === 'commands') {
+                gameState = 'commands';
+                return;
+              } else if (opt.key === 'back') {
+                gameState = 'menu';
+                return;
+              }
+            }
+          }
+        }
+        // --- Remove: If no setting was clicked, assume click to return to menu ---
+        // if (!clickedAny) {
+        //   gameState = "menu";
+        // }
+      } else if (gameState === "commands" || gameState === "about") {
+        gameState = "menu"; // Click anywhere to return to menu from commands/about
+      }
+      else if (gameOver && waitingForRestart) {
+        const rect = canvas.getBoundingClientRect();
+        const mouseX = e.clientX - rect.left;
+        const mouseY = e.clientY - rect.top;
+        // Check if Home button symbol is clicked in the top-right corner
+        const homeButtonX = canvas.width - 70;
+        const homeButtonY = 20;
+        if (
+          mouseX > homeButtonX && mouseX < homeButtonX + 50 &&
+          mouseY > homeButtonY && mouseY < homeButtonY + 50
+        ) {
+          gameState = "menu";
+          homeButtonHover = false; // Reset hover state
+          return;
+        }
+        // If not clicked, restart game
+        gameState = "playing";
+        resetGame();
+      }
+    });
+
+    canvas.addEventListener('mousedown', function (e) {
+      if (gameState === 'settings') {
+        const rect = canvas.getBoundingClientRect();
+        const mouseX = e.clientX - rect.left;
+        const mouseY = e.clientY - rect.top;
+        let yStart = 180;
+        for (let i = 0; i < settingsOptions.length; i++) {
+          const opt = settingsOptions[i];
+          if (opt.type === 'number') {
+            const textY = yStart + i * 50;
+            const sliderX = canvas.width / 2 + 50;
+            const sliderWidth = 200;
+            const sliderY = textY - 10;
+            if (mouseX > sliderX && mouseX < sliderX + sliderWidth &&
+              mouseY > sliderY && mouseY < sliderY + 20) {
+              selectedSetting = i;
+              isDraggingSlider = true;
+              // Initial set on mousedown for immediate response
+              const clickRatio = (mouseX - sliderX) / sliderWidth;
+              let newValue = opt.min + clickRatio * (opt.max - opt.min);
+              newValue = Math.round(newValue / opt.step) * opt.step;
+              newValue = Math.max(opt.min, Math.min(opt.max, newValue));
+
+              if (opt.key === 'obstacleSpeed') {
+                obstacleSpeed = newValue;
+              } else {
+                ball[opt.key] = newValue;
+              }
+              opt.initialValue = newValue;
+              break;
+            }
+          }
+        }
+      }
+    });
+
+    canvas.addEventListener('mousemove', function (e) {
+      const rect = canvas.getBoundingClientRect();
+      const mouseX = e.clientX - rect.left;
+      const mouseY = e.clientY - rect.top;
+
+      if (gameState === 'settings' && isDraggingSlider) {
+        const opt = settingsOptions[selectedSetting];
+        if (opt && opt.type === 'number') {
+          const sliderX = canvas.width / 2 + 50;
+          const sliderWidth = 200;
+          let newValue = opt.min + ((mouseX - sliderX) / sliderWidth) * (opt.max - opt.min);
+          newValue = Math.round(newValue / opt.step) * opt.step;
+          newValue = Math.max(opt.min, Math.min(opt.max, newValue));
+
+          if (opt.key === 'obstacleSpeed') {
+            obstacleSpeed = newValue;
+          } else {
+            ball[opt.key] = newValue;
+          }
+          opt.initialValue = newValue; // Update stored value
+        }
+      } else if (gameState === "menu") {
+        menuHover = -1;
+        for (let i = 0; i < menuOptions.length; i++) {
+          const x = canvas.width / 2 - 100;
+          const y = 220 + i * 70;
+          if (
+            mouseX > x && mouseX < x + 200 &&
+            mouseY > y - 30 && mouseY < y + 30
+          ) {
+            menuHover = i;
+            selectedMenu = i;
+            break;
+          }
+        }
+      } else if (gameState === "gameover") {
+        const homeButtonX = canvas.width - 70;
+        const homeButtonY = 20;
+        if (
+          mouseX > homeButtonX && mouseX < homeButtonX + 50 &&
+          mouseY > homeButtonY && mouseY < homeButtonY + 50
+        ) {
+          homeButtonHover = true;
+        } else {
+          homeButtonHover = false;
+        }
+      }
+    });
+
+    canvas.addEventListener('mouseup', function () {
+      isDraggingSlider = false;
+    });
+
+    canvas.addEventListener("mouseleave", function () {
+      menuHover = -1;
+      isDraggingSlider = false; // Stop dragging if mouse leaves canvas
+    });
+
+    document.addEventListener("keydown", function (e) {
+      // --- Hidden Autopilot Toggle ---
+      if (e.ctrlKey && e.shiftKey && (e.code === 'KeyA' || e.key === 'A')) {
+        autopilotEnabled = !autopilotEnabled;
+        e.preventDefault();
+        return;
+      }
+
+      if (gameState === "menu") {
+        if (e.code === "ArrowUp") {
+          selectedMenu = (selectedMenu + menuOptions.length - 1) % menuOptions.length;
+          e.preventDefault();
+        } else if (e.code === "ArrowDown") {
+          selectedMenu = (selectedMenu + 1) % menuOptions.length;
+          e.preventDefault();
+        } else if (e.code === "Enter" || e.code === "Space") {
+          e.preventDefault();
+          if (menuOptions[selectedMenu] === "Play") {
+            gameState = "playing";
+            resetGame();
+          } else if (menuOptions[selectedMenu] === "Settings") {
+            gameState = "settings";
+            // Initialize settings values when entering settings menu
+            settingsOptions.forEach(opt => {
+              if (opt.type === 'number') {
+                if (opt.key === 'obstacleSpeed') {
+                  opt.initialValue = obstacleSpeed;
+                } else {
+                  opt.initialValue = ball[opt.key];
+                }
+              }
+            });
+          } else if (menuOptions[selectedMenu] === "About") {
+            gameState = "about";
+          }
+        }
+        return;
+      }
+
+      if (gameState === "settings") {
+        if (e.code === "ArrowUp") {
+          selectedSetting = (selectedSetting + settingsOptions.length - 1) % settingsOptions.length;
+          e.preventDefault();
+        } else if (e.code === "ArrowDown") {
+          selectedSetting = (selectedSetting + 1) % settingsOptions.length;
+          e.preventDefault();
+        } else if (
+          (e.code === "ArrowLeft" || e.code === "ArrowRight") &&
+          settingsOptions[selectedSetting].type === 'number'
+        ) {
+          // Adjust value with left/right arrow
+          const opt = settingsOptions[selectedSetting];
+          let value = opt.key === 'obstacleSpeed' ? obstacleSpeed : ball[opt.key];
+          if (e.code === "ArrowLeft") {
+            value -= opt.step;
+          } else {
+            value += opt.step;
+          }
+          value = Math.max(opt.min, Math.min(opt.max, value));
+          value = Math.round(value / opt.step) * opt.step;
+          if (opt.key === 'obstacleSpeed') {
+            obstacleSpeed = value;
+          } else {
+            ball[opt.key] = value;
+          }
+          opt.initialValue = value;
+          e.preventDefault();
+        } else if (e.code === "ArrowLeft") {
+          // If on a special button, move left among them
+          const specialKeys = ['reset', 'commands', 'back'];
+          const specialIndices = settingsOptions
+            .map((opt, i) => specialKeys.includes(opt.key) ? i : -1)
+            .filter(i => i !== -1);
+          if (specialIndices.includes(selectedSetting)) {
+            let idx = specialIndices.indexOf(selectedSetting);
+            idx = (idx + specialIndices.length - 1) % specialIndices.length;
+            selectedSetting = specialIndices[idx];
+          } else {
+            // Otherwise, do nothing or optionally move to last special button if at end
+          }
+          e.preventDefault();
+        } else if (e.code === "ArrowRight") {
+          // If on a special button, move right among them
+          const specialKeys = ['reset', 'commands', 'back'];
+          const specialIndices = settingsOptions
+            .map((opt, i) => specialKeys.includes(opt.key) ? i : -1)
+            .filter(i => i !== -1);
+          if (specialIndices.includes(selectedSetting)) {
+            let idx = specialIndices.indexOf(selectedSetting);
+            idx = (idx + 1) % specialIndices.length;
+            selectedSetting = specialIndices[idx];
+          } else {
+            // Otherwise, do nothing or optionally move to first special button if at end
+          }
+          e.preventDefault();
+        } else if (e.code === "ArrowLeft" || e.code === "ArrowRight") {
+          e.preventDefault();
+        } else if ((e.code === "Enter" || e.code === "Space") && settingsOptions[selectedSetting].key === 'reset') {
+          // Reset all settings to their default values
+          settingsOptions.forEach(opt2 => {
+            if (opt2.type === 'number') {
+              if (opt2.key === 'obstacleSpeed') {
+                obstacleSpeed = opt2.defaultValue;
+              } else {
+                ball[opt2.key] = opt2.defaultValue;
+              }
+              opt2.initialValue = opt2.defaultValue;
+            }
+          });
+          e.preventDefault();
+        } else if ((e.code === "Enter" || e.code === "Space") && settingsOptions[selectedSetting].key === 'commands') {
+          gameState = 'commands';
+          e.preventDefault();
+        } else if ((e.code === "Enter" || e.code === "Space") && settingsOptions[selectedSetting].key === 'back') {
+          gameState = 'menu';
+          e.preventDefault();
+        } else if (e.code === "Escape") { // Only ESC to return to menu from settings
+          gameState = "menu";
+          e.preventDefault();
+        } else if (e.code === "Backspace") { // Backspace to return to menu from settings
+          gameState = "menu";
+          e.preventDefault();
+        }
+        return;
+      }
+
+      if (gameState === "about" || gameState === "commands") { // Return from about or commands screen
+        if (e.code === "Escape" || e.code === "Enter" || e.code === "Space") {
+          gameState = "menu";
+          e.preventDefault();
+        }
+        return;
+      }
+
+      if (gameState === "gameover") {
+        if (e.key === "h" || e.key === "H") {
+          gameState = "menu";
+          return;
+        }
+        gameState = "playing";
+        resetGame();
+        e.preventDefault();
+        return;
+      }
+
+      // Game playing controls
+      if ((e.code === "Space" || e.code === "ArrowUp")) {
+        if (ball.grounded) {
+          ball.velocityY = -ball.jumpForce;
+          ball.grounded = false;
+          ball.rotationSpeed = 0.4;
+          ball.jumpsRemaining = ball.maxJumps; // Reset jumps when grounded jump occurs
+          e.preventDefault();
+        } else if (ball.jumpsRemaining > 0) { // For the "one jump" in mid-air/bounce
+          ball.velocityY = -ball.jumpForce;
+          ball.rotationSpeed = 0.4;
+          ball.jumpsRemaining--; // Consume one extra jump
+          e.preventDefault();
+        }
+      }
+
+      if ((e.code === "ArrowDown") && ball.grounded) {
+        ball.velocityY = ball.jumpForce;
+        ball.grounded = false;
+        ball.rotationSpeed = -0.4;
+        e.preventDefault();
+      }
+
+      if (e.code === "ArrowLeft") {
+        ball.x -= getBallMoveSpeed();
+        e.preventDefault();
+      }
+
+      if (e.code === "ArrowRight") {
+        ball.x += getBallMoveSpeed();
+        e.preventDefault();
+      }
+    });
+
+    class Obstacle {
+      constructor() {
+        this.width = 40 + Math.random() * 40; // width between 40 and 80
+        this.height = 30 + Math.random() * 40; // height between 30 and 70
+        this.x = canvas.width;
+        this.y = canvas.height - this.height - GROUND_HEIGHT;
+        // Gradually increase speed as score increases
+        const baseSpeed = obstacleSpeed;
+        const maxSpeed = settingsOptions.find(opt => opt.key === 'obstacleSpeed').max;
+        const speedIncreaseRate = 0.07; // Tune this for difficulty ramp
+        this.speed = Math.min(baseSpeed + score * speedIncreaseRate, maxSpeed);
+      }
+
+      draw() {
+        ctx.drawImage(grassImg, this.x, this.y, this.width, this.height);
+      }
+
+      update() {
+        this.x -= this.speed;
+        this.draw();
+      }
+    }
+
+    const ballImg = new Image();
+    ballImg.src = "assets/ball.png";
+
+    const grassImg = new Image();
+    grassImg.src = "assets/grass.png";
+
+    let imagesLoadedCount = 0;
+    const totalImages = 2;
+
+    function imageLoaded() {
+      imagesLoadedCount++;
+      if (imagesLoadedCount === totalImages) {
+        update();
+      }
+    }
+
+    ballImg.onload = imageLoaded;
+    grassImg.onload = imageLoaded;
+
+    if (ballImg.complete && grassImg.complete) {
+      imageLoaded();
+      imageLoaded();
+    }
+
+    function drawBall() {
+      ctx.save();
+      ctx.translate(ball.x + ball.width / 2, ball.y + ball.height / 2);
+      ctx.rotate(ball.rotation);
+      ctx.drawImage(ballImg, -ball.width / 2, -ball.height / 2, ball.width, ball.height);
+      ctx.restore();
+    }
+
+    function drawMenu() {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+      for (let ball of menuBalls) {
+        ctx.beginPath();
+        ctx.arc(ball.x, ball.y, ball.r, 0, Math.PI * 2);
+        ctx.fillStyle = ball.color;
+        ctx.fill();
+        ball.x += ball.dx;
+        if (ball.x + ball.r < 0) {
+          ball.x = canvas.width + ball.r;
+          ball.y = Math.random() * canvas.height;
+          ball.r = 20 + Math.random() * 20;
+          ball.dx = -1 - Math.random() * 2;
+          ball.color = `rgba(${100 + Math.random() * 155},${200 + Math.random() * 55},${100 + Math.random() * 155},0.15)`;
+        }
+      }
+
+      let pulse = Math.floor(128 + 127 * Math.sin(Date.now() / 500));
+      ctx.font = "bold 70px Courier New, monospace";
+      ctx.textAlign = "center";
+      ctx.fillStyle = `rgb(${pulse},${255 - pulse / 2},${100 + pulse / 3})`;
+      ctx.shadowColor = `rgba(${pulse},${255 - pulse / 2},${100 + pulse / 3},0.7)`;
+      ctx.shadowBlur = 30;
+      ctx.fillText("BAULA", canvas.width / 2, 160);
+      ctx.shadowBlur = 0;
+
+      ctx.font = "bold 28px Courier New, monospace";
+      for (let i = 0; i < menuOptions.length; i++) {
+        let isSelected = (i === selectedMenu) || (i === menuHover);
+        ctx.save();
+
+        const buttonWidth = 200;
+        const buttonHeight = 60;
+        const buttonX = canvas.width / 2 - buttonWidth / 2;
+        const buttonY = 220 + i * 70 - buttonHeight / 2;
+        const borderRadius = 30;
+
+        ctx.beginPath();
+        ctx.roundRect(buttonX, buttonY, buttonWidth, buttonHeight, borderRadius);
+        ctx.fillStyle = isSelected ? "#00FF99" : "#fff";
+        ctx.shadowColor = isSelected ? "#00FF99" : "#333";
+        ctx.shadowBlur = isSelected ? 20 : 8;
+        ctx.fill();
+        ctx.shadowBlur = 0;
+        ctx.lineWidth = 3;
+        ctx.strokeStyle = isSelected ? "#222" : "#333";
+        ctx.stroke();
+
+        ctx.fillStyle = isSelected ? "#222" : "#333";
+        ctx.textAlign = "center";
+        ctx.textBaseline = "middle";
+        ctx.fillText(menuOptions[i], canvas.width / 2, 220 + i * 70);
+        ctx.restore();
+      }
+      ctx.font = "20px Courier New, monospace";
+      ctx.fillStyle = "#fff";
+      ctx.textAlign = "center";
+      ctx.fillText("Use ↑/↓ and Enter, or click, to select", canvas.width / 2, 500);
+      ctx.fillText("Tip: You can use keyboard or mouse!", canvas.width / 2, 540);
+    }
+
+    function drawSettings() {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      // --- Card/Panel Background ---
+
+      const panelWidth = 700;
+      const panelHeight = 520;
+      const panelX = canvas.width / 2 - panelWidth / 2;
+      const panelY = 70;
+      ctx.save();
+      ctx.globalAlpha = 0.96;
+      ctx.beginPath();
+      ctx.roundRect(panelX, panelY, panelWidth, panelHeight, 40);
+      ctx.fillStyle = "#333";
+      ctx.shadowColor = "rgba(0,0,0,0.5)";
+      ctx.shadowBlur = 36;
+      ctx.fill();
+      ctx.shadowBlur = 0;
+      ctx.globalAlpha = 1.0;
+      ctx.restore();
+      // --- Title ---
+      ctx.font = "bold 40px Courier New, monospace";
+      ctx.fillStyle = "#00FF99";
+      ctx.textAlign = "center";
+      ctx.shadowColor = "#00FF99";
+      ctx.shadowBlur = 20;
+      ctx.fillText("Settings", canvas.width / 2, 130);
+      ctx.shadowBlur = 0;
+
+      // --- Settings List ---
+      ctx.font = "bold 28px Courier New, monospace";
+      ctx.textAlign = "left";
+      let yStart = 180;
+      let lastGroup = '';
+      let y = yStart;
+      // Collect indices for the three special buttons
+      const specialKeys = ['reset', 'commands', 'back'];
+      const specialButtonIndices = settingsOptions
+        .map((opt, i) => specialKeys.includes(opt.key) ? i : -1)
+        .filter(i => i !== -1);
+      // Render all settings except the three special buttons
+      for (let i = 0; i < settingsOptions.length; i++) {
+        const opt = settingsOptions[i];
+        if (specialKeys.includes(opt.key)) continue; // Skip special buttons here
+        let value = opt.key === 'obstacleSpeed' ? obstacleSpeed : ball[opt.key];
+        const textY = y;
+        // --- Group Header ---
+        if (opt.group && opt.group !== lastGroup) {
+          ctx.font = "bold 24px Courier New, monospace";
+          ctx.fillStyle = "#FFD700";
+          ctx.textAlign = "left";
+          ctx.fillText(opt.group, panelX + 40, y);
+          // Underline
+          ctx.strokeStyle = "#FFD700";
+          ctx.lineWidth = 2;
+          ctx.beginPath();
+          ctx.moveTo(panelX + 40, y + 6);
+          ctx.lineTo(panelX + 90, y + 6);
+          ctx.stroke();
+          y += 42;
+          lastGroup = opt.group;
+          ctx.font = "bold 28px Courier New, monospace";
+        }
+        // --- Setting Label ---
+        ctx.fillStyle = i === selectedSetting ? "#00FF99" : "#fff";
+        ctx.textAlign = "left";
+        ctx.font = "bold 28px Courier New, monospace";
+        ctx.fillText(opt.label + (opt.type === 'number' ? ':' : ''), panelX + 40, y);
+
+        if (opt.type === 'number') {
+          // --- Modern Slider ---
+          const sliderX = panelX + 320;
+          const sliderY = y - 18;
+          const sliderWidth = 260;
+          const sliderHeight = 18;
+          const sliderKnobRadius = 16;
+
+          // Slider bar gradient
+          let grad = ctx.createLinearGradient(sliderX, sliderY, sliderX + sliderWidth, sliderY);
+          grad.addColorStop(0, "#00FF99");
+          grad.addColorStop(1, "#00C3FF");
+          ctx.save();
+          ctx.beginPath();
+          ctx.roundRect(sliderX, sliderY, sliderWidth, sliderHeight, 9);
+          ctx.fillStyle = grad;
+          ctx.shadowColor = i === selectedSetting ? "#00FF99" : "#222";
+          ctx.shadowBlur = i === selectedSetting ? 16 : 4;
+          ctx.fill();
+          ctx.shadowBlur = 0;
+          // Slider rounded border (matches bar)
+          ctx.strokeStyle = i === selectedSetting ? "#00FF99" : "#444";
+          ctx.lineWidth = 2;
+          ctx.beginPath();
+          ctx.roundRect(sliderX, sliderY, sliderWidth, sliderHeight, 9);
+          ctx.stroke();
+          ctx.restore();
+
+          // Calculate knob position
+          const valueRatio = (value - opt.min) / (opt.max - opt.min);
+          const knobX = sliderX + valueRatio * sliderWidth;
+
+          // --- Glowing Knob ---
+          ctx.save();
+          ctx.beginPath();
+          ctx.arc(knobX, sliderY + sliderHeight / 2, sliderKnobRadius, 0, Math.PI * 2);
+          ctx.fillStyle = i === selectedSetting ? "#00FF99" : "#fff";
+          ctx.shadowColor = i === selectedSetting ? "#00FF99" : "#00C3FF";
+          ctx.shadowBlur = i === selectedSetting ? 30 : 10;
+          ctx.fill();
+          ctx.shadowBlur = 0;
+          ctx.lineWidth = 3;
+          ctx.strokeStyle = i === selectedSetting ? "#222" : "#777";
+          ctx.stroke();
+          ctx.restore();
+
+          // --- Value Text ---
+          ctx.fillStyle = i === selectedSetting ? "#00FF99" : "#fff";
+          ctx.textAlign = "right";
+          ctx.font = "bold 26px Courier New, monospace";
+          ctx.fillText(value.toFixed(2).replace(/\.00$/, ''), sliderX + sliderWidth + 70, y + 2);
+          ctx.font = "bold 28px Courier New, monospace";
+        }
+        y += 54;
+      }
+
+      // --- Special Buttons Row (Reset, Commands, Back) ---
+      const buttonRowY = y + 10;
+      const buttonWidth = 140;
+      const buttonHeight = 40;
+      const buttonSpacing = 30;
+      const totalRowWidth = buttonWidth * 3 + buttonSpacing * 2;
+      const startX = canvas.width / 2 - totalRowWidth / 2;
+      for (let j = 0; j < specialButtonIndices.length; j++) {
+        const i = specialButtonIndices[j];
+        const opt = settingsOptions[i];
+        const buttonX = startX + j * (buttonWidth + buttonSpacing);
+        const buttonY = buttonRowY;
+        const borderRadius = 20;
+        ctx.save();
+        ctx.beginPath();
+        ctx.roundRect(buttonX, buttonY, buttonWidth, buttonHeight, borderRadius);
+        // Color by type
+        if (opt.key === 'reset') {
+          ctx.fillStyle = i === selectedSetting ? "#FF6666" : "#fff";
+          ctx.shadowColor = i === selectedSetting ? "#FF6666" : "transparent";
+        } else if (opt.key === 'commands') {
+          ctx.fillStyle = i === selectedSetting ? "#00FF99" : "#fff";
+          ctx.shadowColor = i === selectedSetting ? "#00FF99" : "transparent";
+        } else if (opt.key === 'back') {
+          ctx.fillStyle = i === selectedSetting ? "#FFD700" : "#fff";
+          ctx.shadowColor = i === selectedSetting ? "#FFD700" : "transparent";
+        } else {
+          ctx.fillStyle = i === selectedSetting ? "#00C3FF" : "#fff";
+          ctx.shadowColor = i === selectedSetting ? "#00C3FF" : "transparent";
+        }
+        ctx.shadowBlur = i === selectedSetting ? 18 : 0;
+        ctx.fill();
+        ctx.shadowBlur = 0;
+        ctx.lineWidth = 2;
+        ctx.strokeStyle = i === selectedSetting ? "#222" : "#333";
+        ctx.stroke();
+        // Button label
+        ctx.fillStyle = i === selectedSetting ? "#222" : "#333";
+        ctx.textAlign = "center";
+        ctx.textBaseline = "middle";
+        ctx.font = "bold 20px Courier New, monospace";
+        ctx.fillText(opt.label, buttonX + buttonWidth / 2, buttonY + buttonHeight / 2);
+        ctx.restore();
+      }
+      y = buttonRowY + buttonHeight + 10;
+
+      // --- Tooltip Box for Selected Setting ---
+      const selectedOpt = settingsOptions[selectedSetting];
+      if (selectedOpt && selectedOpt.tooltip) {
+        const tooltipText = selectedOpt.tooltip;
+        ctx.font = "20px Courier New, monospace";
+        ctx.textAlign = "center";
+        // Tooltip box size
+        const tooltipWidth = ctx.measureText(tooltipText).width + 40;
+        const tooltipHeight = 38;
+        const tooltipX = canvas.width / 2 - tooltipWidth / 2;
+        const tooltipY = panelY + panelHeight + 18;
+        // Box
+        ctx.save();
+        ctx.globalAlpha = 0.95;
+        ctx.beginPath();
+        ctx.roundRect(tooltipX, tooltipY, tooltipWidth, tooltipHeight, 16);
+        ctx.fillStyle = "#23272f";
+        ctx.shadowColor = "#FFD700";
+        ctx.shadowBlur = 12;
+        ctx.fill();
+        ctx.shadowBlur = 0;
+        ctx.globalAlpha = 1.0;
+        ctx.restore();
+        // Pointer
+        ctx.save();
+        ctx.beginPath();
+        ctx.moveTo(canvas.width / 2 - 10, tooltipY);
+        ctx.lineTo(canvas.width / 2 + 10, tooltipY);
+        ctx.lineTo(canvas.width / 2, tooltipY - 12);
+        ctx.closePath();
+        ctx.fillStyle = "#23272f";
+        ctx.shadowColor = "#FFD700";
+        ctx.shadowBlur = 8;
+        ctx.fill();
+        ctx.shadowBlur = 0;
+        ctx.restore();
+        // Text
+        ctx.fillStyle = "#FFD700";
+        ctx.fillText(tooltipText, canvas.width / 2, tooltipY + 25);
+      }
+
+      // --- Footer Help Text ---
+      ctx.font = "20px Courier New, monospace";
+      ctx.fillStyle = "#fff";
+      ctx.textAlign = "center";
+      ctx.fillText("Use ↑/↓ to select, ←/→ or drag to adjust, Enter/Space/Click to activate, Back to return", canvas.width / 2, panelY + panelHeight + 70);
+    }
+
+    function drawCommands() {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      ctx.font = "bold 50px Courier New, monospace";
+      ctx.fillStyle = "#FFD700";
+      ctx.textAlign = "center";
+      ctx.fillText("Rules & Commands", canvas.width / 2, 120);
+      ctx.font = "24px Courier New, monospace";
+      ctx.fillStyle = "#fff";
+      const rules = [
+        'Space / Up Arrow: Jump (can perform one extra jump in air/bounce)',
+        'Down Arrow: Fast fall (when grounded)',
+        'Left/Right Arrow: Move horizontally',
+        'Click or Enter/Space: Select menu option / Interact with settings',
+        'ESC: Back to main menu (from settings, about, commands)',
+        'Score increases for each obstacle passed',
+        'Game Over on collision',
+        'High Score is saved in your browser',
+      ];
+      let y = 180;
+      for (let i = 0; i < rules.length; i++) {
+        ctx.fillText(rules[i], canvas.width / 2, y + i * 36);
+      }
+      ctx.font = "bold 24px Courier New, monospace";
+      ctx.fillStyle = "#00FF99";
+      ctx.fillText("Press ESC, Enter, or Space to return", canvas.width / 2, y + rules.length * 40);
+    }
+
+    function drawAbout() {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      ctx.font = "bold 60px Courier New, monospace";
+      ctx.fillStyle = "#00FF99";
+      ctx.textAlign = "center";
+      ctx.fillText("About", canvas.width / 2, 150);
+      ctx.font = "30px Courier New, monospace";
+      ctx.fillStyle = "#fff";
+      ctx.fillText("BAULA", canvas.width / 2, 250);
+      ctx.fillText("Created by Bipin Yadav", canvas.width / 2, 300);
+      ctx.fillText("YEAH! I MADE THIS ", canvas.width / 2, 350);
+      ctx.font = "15px Courier New, monospace";
+      ctx.fillText("Press any key or click to return", canvas.width / 2, 500);
+    }
+
+    function update() {
+      if (gameState === "menu") {
+        drawMenu();
+      } else if (gameState === "settings") {
+        drawSettings();
+      } else if (gameState === "commands") {
+        drawCommands();
+      } else if (gameState === "about") {
+        drawAbout();
+      } else if (gameState === "playing") {
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        // Background
+        ctx.fillStyle = '#333'; // Dark gray instead of pure black
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+        // Draw moon
+        moonX -= moonSpeed;
+        if (moonX < -120) moonX = canvas.width + 120;
+        ctx.save();
+        ctx.globalAlpha = 0.85;
+        ctx.drawImage(moonImg, moonX, moonY, 120, 120);
+        ctx.restore();
+
+        // Ground
+        ctx.fillStyle = "#555";
+        ctx.fillRect(0, canvas.height - GROUND_HEIGHT, canvas.width, GROUND_HEIGHT);
+
+        // --- Autopilot Logic ---
+        if (autopilotEnabled) {
+          // Find the next obstacle in front of the ball
+          let nextObs = null;
+          for (let obs of obstacles) {
+            if (obs.x + obs.width > ball.x && obs.x > ball.x) {
+              nextObs = obs;
+              break;
+            }
+          }
+          if (nextObs && ball.grounded) {
+            // Estimate time to reach obstacle
+            const dx = (nextObs.x - (ball.x + ball.width));
+            const speed = nextObs.speed;
+            // Ball jump arc: t = 2 * jumpForce / gravity (time in air)
+            const jumpTime = 2 * ball.jumpForce / ball.gravity;
+            // How far the obstacle will move in that time
+            const obsTravel = speed * jumpTime;
+            // Buffer increases with speed
+            const buffer = 60 + speed * 10;
+            // Minimum distance to avoid jumping too late
+            const minJumpDist = 60;
+            // Jump if obstacle is within the jump arc distance + buffer, but not too close
+            if (dx > minJumpDist && dx < obsTravel + nextObs.width / 2 + buffer) {
+              ball.velocityY = -ball.jumpForce;
+              ball.grounded = false;
+              ball.rotationSpeed = 0.4;
+              ball.jumpsRemaining = ball.maxJumps;
+            }
+          }
+        }
+
+        ball.velocityY += ball.gravity;
+        ball.y += ball.velocityY;
+
+        // Collision with ground
+        if (ball.y > canvas.height - ball.height - GROUND_HEIGHT) {
+          ball.y = canvas.height - ball.height - GROUND_HEIGHT;
+          if (Math.abs(ball.velocityY) > 2) {
+            ball.velocityY = -ball.velocityY * ball.bounciness;
+          } else {
+            ball.velocityY = 0;
+          }
+          ball.grounded = true;
+          ball.jumpsRemaining = ball.maxJumps; // Reset jumps when ball lands firmly
+          ball.rotationSpeed = ball.rotationSpeed > 0 ? 0.03 : -0.03;
+        } else {
+          ball.grounded = false;
+        }
+
+        if (Math.abs(ball.rotationSpeed) > 0.03) {
+          ball.rotationSpeed *= 0.95;
+          if (Math.abs(ball.rotationSpeed) < 0.03) {
+            ball.rotationSpeed = ball.rotationSpeed > 0 ? 0.03 : -0.03;
+          }
+        }
+        ball.rotation += ball.rotationSpeed;
+
+        drawBall();
+
+        if (frames >= nextObstacleFrame) {
+          obstacles.push(new Obstacle());
+          nextObstacleFrame = frames + Math.floor(60 + Math.random() * 90);
+        }
+
+        for (let i = 0; i < obstacles.length; i++) {
+          obstacles[i].update();
+
+          if (
+            ball.x < obstacles[i].x + obstacles[i].width &&
+            ball.x + ball.width > obstacles[i].x &&
+            ball.y < obstacles[i].y + obstacles[i].height &&
+            ball.y + ball.height > obstacles[i].y
+          ) {
+            damageFlashTimer = 30;
+            gameOver = true;
+            waitingForRestart = true;
+            gameState = "gameover";
+            break;
+          }
+
+          if (obstacles[i].x + obstacles[i].width < 0) {
+            obstacles.splice(i, 1);
+            score++;
+            i--;
+          }
+        }
+
+        // --- Star Spawning (only if score >= 5) ---
+        if (score >= 5 && frames >= nextStarFrame) {
+          const starSize = 80;
+          const starY = canvas.height - GROUND_HEIGHT - starSize;
+          const starX = canvas.width + starSize;
+          let overlapsObstacle = false;
+          for (let obs of obstacles) {
+            if (
+              starX < obs.x + obs.width &&
+              starX + starSize > obs.x
+            ) {
+              overlapsObstacle = true;
+              break;
+            }
+          }
+          if (!overlapsObstacle) {
+            stars.push({
+              x: starX,
+              y: starY,
+              size: starSize,
+              speed: getDynamicObstacleSpeed() + (Math.random() - 0.5) * 1.5 // add some random speed
+            });
+          }
+          nextStarFrame = frames + Math.floor(300 + Math.random() * 400);
+        }
+
+        // --- Update and Draw Stars ---
+        for (let i = 0; i < stars.length; i++) {
+          const star = stars[i];
+          // Always match current dynamic obstacleSpeed
+          const dynSpeed = star.speed; // use each star's own speed
+          star.x -= dynSpeed;
+          star.speed = dynSpeed;
+          // Draw yellow glow matching the star's size
+          ctx.save();
+          ctx.shadowColor = '#FFD700'; // yellow glow
+          ctx.shadowBlur = 40;
+          ctx.drawImage(starImg, star.x, star.y, star.size, star.size);
+          ctx.shadowBlur = 0;
+          ctx.restore();
+          // Collision with ball
+          if (
+            ball.x < star.x + star.size &&
+            ball.x + ball.width > star.x &&
+            ball.y < star.y + star.size &&
+            ball.y + ball.height > star.y
+          ) {
+            // Activate or extend power-up
+            powerUpActive = true;
+            powerUpTimer += POWER_UP_DURATION; // stack time
+            powerUpTextTimer = POWER_UP_TEXT_DURATION;
+            ball.jumpForce = POWER_JUMP_FORCE;
+            stars.splice(i, 1);
+            i--;
+            continue;
+          }
+          // Remove if offscreen
+          if (star.x + star.size < 0) {
+            stars.splice(i, 1);
+            i--;
+          }
+        }
+        // --- Power-up logic ---
+        if (powerUpActive) {
+          // Visual effect: glow around ball (same size as ball)
+          ctx.save();
+          ctx.globalAlpha = 0.5;
+          ctx.beginPath();
+          ctx.arc(ball.x + ball.width / 2, ball.y + ball.height / 2, ball.width / 2, 0, Math.PI * 2);
+          ctx.fillStyle = '#FFD700';
+          ctx.shadowColor = '#FFD700';
+          ctx.shadowBlur = 30;
+          ctx.fill();
+          ctx.restore();
+          powerUpTimer--;
+          if (powerUpTimer <= 0) {
+            powerUpActive = false;
+            ball.jumpForce = NORMAL_JUMP_FORCE;
+          }
+        }
+        // --- Power Up! text ---
+        if (powerUpTextTimer > 0) {
+          ctx.save();
+          ctx.font = "bold 30px Courier New, monospace";
+          ctx.fillStyle = "#FFD700";
+          ctx.textAlign = "center";
+          ctx.shadowColor = "#FFD700";
+          ctx.shadowBlur = 20;
+          ctx.fillText("Power Up!", ball.x + ball.width / 2, ball.y - 20);
+          ctx.restore();
+          powerUpTextTimer--;
+        }
+
+        ctx.fillStyle = "white";
+        ctx.font = "bold 40px Courier New,Comic Sans MS, cursive, sans-serif";
+        ctx.textAlign = "left";
+        ctx.fillText("BAULA", 30, 65);
+
+        ctx.font = "20px Courier New, monospace";
+        ctx.fillText("High Score: " + highScore, 30, 90);
+        ctx.fillText("Score: " + score, 30, 115);
+
+        // --- Autopilot Indicator ---
+        if (autopilotEnabled) {
+          ctx.save();
+          ctx.font = "bold 22px Courier New, monospace";
+          ctx.fillStyle = "#00FF99";
+          ctx.globalAlpha = 0.7;
+          ctx.textAlign = "right";
+          ctx.fillText("Autopilot ON", canvas.width - 30, 40);
+          ctx.globalAlpha = 1.0;
+          ctx.restore();
+        }
+
+        // --- Damage Flash Effect ---
+        if (damageFlashTimer > 0) {
+          ctx.save();
+          ctx.globalAlpha = 0.3;
+          ctx.beginPath();
+          ctx.arc(ball.x + ball.width / 2, ball.y + ball.height / 2, ball.width * 0.8, 0, Math.PI * 2);
+          ctx.fillStyle = '#FF2222';
+          ctx.shadowColor = '#FF2222';
+          ctx.shadowBlur = 20;
+          ctx.fill();
+          ctx.restore();
+          damageFlashTimer--;
+        }
+
+        // --- Dynamic Cloud System ---
+        cloudLayers.forEach((layer, layerIndex) => {
+          // Spawn new clouds
+          if (frames % layer.spawnRate === 0 && Math.random() < 0.3) {
+            const cloudSize = layer.minSize + Math.random() * (layer.maxSize - layer.minSize);
+            const cloudY = 40 + Math.random() * (canvas.height - GROUND_HEIGHT - 200);
+            const cloudImageIndex = Math.floor(Math.random() * cloudImages.length);
+
+            layer.clouds.push({
+              x: canvas.width + cloudSize,
+              y: cloudY,
+              size: cloudSize,
+              imageIndex: cloudImageIndex,
+              speed: layer.speed + (Math.random() - 0.5) * 0.2
+            });
+          }
+
+          // Update and draw clouds
+          for (let i = layer.clouds.length - 1; i >= 0; i--) {
+            const cloud = layer.clouds[i];
+            cloud.x -= cloud.speed;
+
+            // Draw cloud with atmospheric effect
+            ctx.save();
+            ctx.globalAlpha = layer.opacity + (Math.random() * 0.1);
+            ctx.shadowColor = 'rgba(255, 255, 255, 0.1)';
+            ctx.shadowBlur = 15;
+
+            // Check if image is loaded before drawing
+            if (cloudImages[cloud.imageIndex] && cloudImages[cloud.imageIndex].complete) {
+              ctx.drawImage(
+                cloudImages[cloud.imageIndex],
+                cloud.x,
+                cloud.y,
+                cloud.size,
+                cloud.size * 0.6
+              );
+            }
+            ctx.restore();
+
+            // Remove offscreen clouds
+            if (cloud.x + cloud.size < -50) {
+              layer.clouds.splice(i, 1);
+            }
+          }
+        });
+
+        frames++;
+      } else if (gameState === "gameover") {
+        powerUpActive = false;
+        ball.jumpForce = NORMAL_JUMP_FORCE;
+        if (score > highScore) {
+          highScore = score;
+          localStorage.setItem('highScore', highScore);
+          newHighScore = true;
+        }
+
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        ctx.font = "bold 60px Courier New, monospace";
+        ctx.fillStyle = "white";
+        ctx.textAlign = "center";
+        ctx.fillText("Game Over!", canvas.width / 2, 255);
+
+        if (newHighScore) {
+          ctx.font = "bold 30px Courier New, monospace";
+          ctx.fillStyle = "#FFD700";
+          ctx.fillText("New High Score!", canvas.width / 2, 200);
+        }
+
+        ctx.font = "20px Courier New, monospace";
+        ctx.fillStyle = "white";
+        ctx.fillText(`Your Score: ${score}`, canvas.width / 2, 300);
+        ctx.fillText(`High Score: ${highScore}`, canvas.width / 2, 340);
+        ctx.fillText("Press any key to Restart", canvas.width / 2, 380);
+
+        // Draw Home button icon in top-right corner, with more distance
+        const homeButtonX = canvas.width - 90; // Further from right edge
+        const homeButtonY = 40;            // Further from top edge
+        const homeButtonSize = 30;
+
+        // Add hover effect (slight scaling)
+        const scale = homeButtonHover ? 1.1 : 1.0;
+        const scaledSize = homeButtonSize * scale;
+        const scaledX = homeButtonX - (scaledSize - homeButtonSize) / 2;
+        const scaledY = homeButtonY - (scaledSize - homeButtonSize) / 2;
+
+        ctx.globalAlpha = homeButtonHover ? 1.0 : 0.8; // Change opacity on hover
+        ctx.drawImage(homeImg, scaledX, scaledY, scaledSize, scaledSize);
+        ctx.globalAlpha = 1.0; // Reset global alpha
+      } else if (gameState === "menu") {
+        powerUpActive = false;
+        ball.jumpForce = NORMAL_JUMP_FORCE;
+        drawMenu();
+      }
+
+      requestAnimationFrame(update);
+    }
+
+    // Ball movement speedup factor
+    function getBallMoveSpeed() {
+      return 10 + Math.min(score * 0.15, 20); // base 10, up to +20 at high score
+    }
+
+    // Obstacle/star speedup factor
+    function getDynamicObstacleSpeed() {
+      // Use the base obstacleSpeed from settings, but add a factor for score
+      const base = settingsOptions.find(opt => opt.key === 'obstacleSpeed').initialValue;
+      return base + Math.min(score * 0.07, 10); // up to +10 speed
+    }
+  </script>
+</body>
+
+</html>
