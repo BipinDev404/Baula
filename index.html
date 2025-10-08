@@ -3,6 +3,7 @@
 
 <head>
   <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
   <title>BAULA</title>
   <style>
     * {
@@ -17,6 +18,16 @@
       text-align: center;
       color: white;
       user-select: none;
+      -webkit-user-select: none;
+      -moz-user-select: none;
+      -ms-user-select: none;
+      touch-action: manipulation;
+      -webkit-touch-callout: none;
+      -webkit-tap-highlight-color: transparent;
+      overflow: hidden;
+      margin: 0;
+      padding: 0;
+      height: 100vh;
     }
 
     h1 {
@@ -30,7 +41,14 @@
       border: 4px solid #ccc;
       border-radius: 15px;
       outline: none;
-      /* Add outline: none; to prevent blue focus ring if desired */
+      touch-action: none;
+      -webkit-touch-callout: none;
+      -webkit-tap-highlight-color: transparent;
+      max-width: 100%;
+      max-height: 80vh;
+      display: block;
+      margin-left: auto;
+      margin-right: auto;
     }
   </style>
 </head>
@@ -83,6 +101,7 @@
 
     // Improved settings options with grouping and tooltips
     const settingsOptions = [
+      { group: 'Display', label: 'Full Horizontal', key: 'fullHorizontal', type: 'boolean', initialValue: false, defaultValue: false, tooltip: 'Use full horizontal screen width for better mobile experience.' },
       { group: 'Ball Physics', label: 'Jump Force', key: 'jumpForce', min: 5, max: 30, step: 1, type: 'number', initialValue: 12, defaultValue: 12, tooltip: 'How high the ball jumps.' },
       { group: 'Ball Physics', label: 'Gravity', key: 'gravity', min: 0.1, max: 2, step: 0.05, type: 'number', initialValue: 0.6, defaultValue: 0.6, tooltip: 'How fast the ball falls.' },
       { group: 'Ball Physics', label: 'Bounciness', key: 'bounciness', min: 0, max: 1, step: 0.05, type: 'number', initialValue: 0.7, defaultValue: 0.7, tooltip: 'How much the ball bounces on the ground.' },
@@ -97,6 +116,7 @@
     let homeImg = new Image(); // Create image object for home icon
     homeImg.src = "assets/home.png";
     let obstacleSpeed = settingsOptions.find(opt => opt.key === 'obstacleSpeed').initialValue;
+    let fullHorizontal = settingsOptions.find(opt => opt.key === 'fullHorizontal').initialValue;
     let autopilotEnabled = false; // Hidden autopilot mode
 
     let stars = [];
@@ -111,6 +131,34 @@
     const NORMAL_JUMP_FORCE = ball.jumpForce;
     const POWER_JUMP_FORCE = 20;
     const GROUND_HEIGHT = 100;
+
+    // Function to resize canvas based on screen size and settings
+    function resizeCanvas() {
+      const isMobile = window.innerWidth <= 768 || window.innerHeight <= 600;
+      
+      if (fullHorizontal || isMobile) {
+        // Use full screen width for mobile or when setting is enabled
+        canvas.width = Math.max(window.innerWidth - 20, 800);
+        canvas.height = Math.min(window.innerHeight - 40, 600);
+      } else {
+        // Default desktop size
+        canvas.width = 1400;
+        canvas.height = 600;
+      }
+      
+      // Update canvas style to maintain aspect ratio
+      const maxWidth = window.innerWidth - 20;
+      const maxHeight = window.innerHeight - 40;
+      
+      if (canvas.width > maxWidth || canvas.height > maxHeight) {
+        const scale = Math.min(maxWidth / canvas.width, maxHeight / canvas.height);
+        canvas.style.width = (canvas.width * scale) + 'px';
+        canvas.style.height = (canvas.height * scale) + 'px';
+      } else {
+        canvas.style.width = canvas.width + 'px';
+        canvas.style.height = canvas.height + 'px';
+      }
+    }
 
     // Moon image
     const moonImg = new Image();
@@ -263,12 +311,12 @@
           const opt = settingsOptions[i];
           const textY = yStart + i * 50;
           if (opt.type === 'number') {
-            const sliderX = canvas.width / 2 + 50;
-            const sliderWidth = 200;
+            const sliderX = canvas.width / 2 + 70; // Match the drawing coordinates
+            const sliderWidth = 260; // Match the drawing width
             const sliderY = textY - 10; // Adjust for vertical centering
             // --- Make label/value area clickable too ---
-            const labelX = canvas.width / 2 - 200; // left of slider
-            const labelWidth = 500; // covers label and value
+            const labelX = canvas.width / 2 - 350; // left of slider
+            const labelWidth = 700; // covers label and value
             const labelY = textY - 25;
             const labelHeight = 50;
             if (
@@ -296,6 +344,28 @@
               }
               return; // Handled click
             }
+          } else if (opt.type === 'boolean') {
+            const toggleX = canvas.width / 2 + 70; // Match the drawing coordinates
+            const toggleWidth = 80;
+            // --- Make label/toggle area clickable ---
+            const labelX = canvas.width / 2 - 350;
+            const labelWidth = 700;
+            const labelY = textY - 25;
+            const labelHeight = 50;
+            if (
+              mouseX > labelX && mouseX < labelX + labelWidth &&
+              mouseY > labelY && mouseY < labelY + labelHeight
+            ) {
+              selectedSetting = i;
+              clickedAny = true;
+              // Toggle the boolean value
+              if (opt.key === 'fullHorizontal') {
+                fullHorizontal = !fullHorizontal;
+                opt.initialValue = fullHorizontal;
+                resizeCanvas(); // Resize when this setting changes
+              }
+              return; // Handled click
+            }
           } else if (opt.type === 'button') {
             // Check if Reset or Commands button was clicked
             const buttonX = canvas.width / 2 - 150;
@@ -314,6 +384,12 @@
                       obstacleSpeed = opt2.defaultValue;
                     } else {
                       ball[opt2.key] = opt2.defaultValue;
+                    }
+                    opt2.initialValue = opt2.defaultValue;
+                  } else if (opt2.type === 'boolean') {
+                    if (opt2.key === 'fullHorizontal') {
+                      fullHorizontal = opt2.defaultValue;
+                      resizeCanvas(); // Resize when this setting changes
                     }
                     opt2.initialValue = opt2.defaultValue;
                   }
@@ -367,8 +443,8 @@
           const opt = settingsOptions[i];
           if (opt.type === 'number') {
             const textY = yStart + i * 50;
-            const sliderX = canvas.width / 2 + 50;
-            const sliderWidth = 200;
+            const sliderX = canvas.width / 2 + 70; // Match drawing coordinates
+            const sliderWidth = 260; // Match drawing width
             const sliderY = textY - 10;
             if (mouseX > sliderX && mouseX < sliderX + sliderWidth &&
               mouseY > sliderY && mouseY < sliderY + 20) {
@@ -388,6 +464,27 @@
               opt.initialValue = newValue;
               break;
             }
+          } else if (opt.type === 'boolean') {
+            const textY = yStart + i * 50;
+            const toggleX = canvas.width / 2 + 70; // Match drawing coordinates
+            const toggleWidth = 80;
+            const labelX = canvas.width / 2 - 350;
+            const labelWidth = 700;
+            const labelY = textY - 25;
+            const labelHeight = 50;
+            if (
+              mouseX > labelX && mouseX < labelX + labelWidth &&
+              mouseY > labelY && mouseY < labelY + labelHeight
+            ) {
+              selectedSetting = i;
+              // Toggle the boolean value
+              if (opt.key === 'fullHorizontal') {
+                fullHorizontal = !fullHorizontal;
+                opt.initialValue = fullHorizontal;
+                resizeCanvas(); // Resize when this setting changes
+              }
+              break;
+            }
           }
         }
       }
@@ -401,8 +498,8 @@
       if (gameState === 'settings' && isDraggingSlider) {
         const opt = settingsOptions[selectedSetting];
         if (opt && opt.type === 'number') {
-          const sliderX = canvas.width / 2 + 50;
-          const sliderWidth = 200;
+          const sliderX = canvas.width / 2 + 70; // Match drawing coordinates
+          const sliderWidth = 260; // Match drawing width
           let newValue = opt.min + ((mouseX - sliderX) / sliderWidth) * (opt.max - opt.min);
           newValue = Math.round(newValue / opt.step) * opt.step;
           newValue = Math.max(opt.min, Math.min(opt.max, newValue));
@@ -451,6 +548,75 @@
       isDraggingSlider = false; // Stop dragging if mouse leaves canvas
     });
 
+    // Touch event listeners for mobile
+    canvas.addEventListener("touchstart", function (e) {
+      e.preventDefault(); // Prevent default touch behavior
+      
+      const rect = canvas.getBoundingClientRect();
+      const scaleX = canvas.width / rect.width;
+      const scaleY = canvas.height / rect.height;
+      const touch = e.touches[0];
+      const touchX = (touch.clientX - rect.left) * scaleX;
+      const touchY = (touch.clientY - rect.top) * scaleY;
+
+      if (gameState === "playing") {
+        // Touch to jump
+        if (ball.grounded) {
+          ball.velocityY = -ball.jumpForce;
+          ball.grounded = false;
+          ball.rotationSpeed = 0.4;
+          ball.jumpsRemaining = ball.maxJumps;
+        } else if (ball.jumpsRemaining > 0) {
+          ball.velocityY = -ball.jumpForce;
+          ball.rotationSpeed = 0.4;
+          ball.jumpsRemaining--;
+        }
+      } else {
+        // Simulate click for menus
+        const clickEvent = new MouseEvent('click', {
+          clientX: touch.clientX,
+          clientY: touch.clientY,
+          bubbles: true
+        });
+        canvas.dispatchEvent(clickEvent);
+      }
+    });
+
+    canvas.addEventListener("touchmove", function (e) {
+      e.preventDefault(); // Prevent scrolling
+      
+      if (gameState === 'settings' && isDraggingSlider) {
+        const rect = canvas.getBoundingClientRect();
+        const scaleX = canvas.width / rect.width;
+        const touch = e.touches[0];
+        const touchX = (touch.clientX - rect.left) * scaleX;
+        
+        const opt = settingsOptions[selectedSetting];
+        if (opt && opt.type === 'number') {
+          const sliderX = canvas.width / 2 + 70; // Match drawing coordinates
+          const sliderWidth = 260; // Match drawing width
+          let newValue = opt.min + ((touchX - sliderX) / sliderWidth) * (opt.max - opt.min);
+          newValue = Math.round(newValue / opt.step) * opt.step;
+          newValue = Math.max(opt.min, Math.min(opt.max, newValue));
+
+          if (opt.key === 'obstacleSpeed') {
+            obstacleSpeed = newValue;
+          } else if (opt.key === 'fullHorizontal') {
+            fullHorizontal = newValue;
+            resizeCanvas(); // Resize when this setting changes
+          } else {
+            ball[opt.key] = newValue;
+          }
+          opt.initialValue = newValue;
+        }
+      }
+    });
+
+    canvas.addEventListener("touchend", function (e) {
+      e.preventDefault();
+      isDraggingSlider = false;
+    });
+
     document.addEventListener("keydown", function (e) {
       // --- Hidden Autopilot Toggle ---
       if (e.ctrlKey && e.shiftKey && (e.code === 'KeyA' || e.key === 'A')) {
@@ -480,6 +646,10 @@
                   opt.initialValue = obstacleSpeed;
                 } else {
                   opt.initialValue = ball[opt.key];
+                }
+              } else if (opt.type === 'boolean') {
+                if (opt.key === 'fullHorizontal') {
+                  opt.initialValue = fullHorizontal;
                 }
               }
             });
@@ -517,6 +687,18 @@
             ball[opt.key] = value;
           }
           opt.initialValue = value;
+          e.preventDefault();
+        } else if (
+          (e.code === "ArrowLeft" || e.code === "ArrowRight" || e.code === "Enter" || e.code === "Space") &&
+          settingsOptions[selectedSetting].type === 'boolean'
+        ) {
+          // Toggle boolean value
+          const opt = settingsOptions[selectedSetting];
+          if (opt.key === 'fullHorizontal') {
+            fullHorizontal = !fullHorizontal;
+            opt.initialValue = fullHorizontal;
+            resizeCanvas(); // Resize when this setting changes
+          }
           e.preventDefault();
         } else if (e.code === "ArrowLeft") {
           // If on a special button, move left among them
@@ -556,6 +738,12 @@
                 obstacleSpeed = opt2.defaultValue;
               } else {
                 ball[opt2.key] = opt2.defaultValue;
+              }
+              opt2.initialValue = opt2.defaultValue;
+            } else if (opt2.type === 'boolean') {
+              if (opt2.key === 'fullHorizontal') {
+                fullHorizontal = opt2.defaultValue;
+                resizeCanvas(); // Resize when this setting changes
               }
               opt2.initialValue = opt2.defaultValue;
             }
@@ -676,6 +864,13 @@
       imageLoaded();
       imageLoaded();
     }
+
+    // Initialize canvas size and add window resize listener
+    resizeCanvas();
+    window.addEventListener('resize', resizeCanvas);
+    window.addEventListener('orientationchange', function() {
+      setTimeout(resizeCanvas, 100); // Delay to allow orientation change to complete
+    });
 
     function drawBall() {
       ctx.save();
@@ -867,6 +1062,48 @@
           ctx.font = "bold 26px Courier New, monospace";
           ctx.fillText(value.toFixed(2).replace(/\.00$/, ''), sliderX + sliderWidth + 70, y + 2);
           ctx.font = "bold 28px Courier New, monospace";
+        } else if (opt.type === 'boolean') {
+          // --- Toggle Switch ---
+          const toggleX = panelX + 320;
+          const toggleY = y - 18;
+          const toggleWidth = 80;
+          const toggleHeight = 36;
+          const toggleRadius = toggleHeight / 2;
+          let toggleValue = opt.key === 'fullHorizontal' ? fullHorizontal : false;
+          
+          // Toggle background
+          ctx.save();
+          ctx.beginPath();
+          ctx.roundRect(toggleX, toggleY, toggleWidth, toggleHeight, toggleRadius);
+          ctx.fillStyle = toggleValue ? "#00FF99" : "#555";
+          ctx.shadowColor = i === selectedSetting ? (toggleValue ? "#00FF99" : "#555") : "transparent";
+          ctx.shadowBlur = i === selectedSetting ? 16 : 0;
+          ctx.fill();
+          ctx.shadowBlur = 0;
+          ctx.strokeStyle = i === selectedSetting ? "#00FF99" : "#444";
+          ctx.lineWidth = 2;
+          ctx.stroke();
+          
+          // Toggle circle
+          const circleX = toggleValue ? toggleX + toggleWidth - toggleRadius : toggleX + toggleRadius;
+          ctx.beginPath();
+          ctx.arc(circleX, toggleY + toggleRadius, toggleRadius - 4, 0, Math.PI * 2);
+          ctx.fillStyle = "#fff";
+          ctx.shadowColor = "#222";
+          ctx.shadowBlur = 8;
+          ctx.fill();
+          ctx.shadowBlur = 0;
+          ctx.strokeStyle = "#222";
+          ctx.lineWidth = 2;
+          ctx.stroke();
+          ctx.restore();
+          
+          // --- Value Text ---
+          ctx.fillStyle = i === selectedSetting ? "#00FF99" : "#fff";
+          ctx.textAlign = "right";
+          ctx.font = "bold 26px Courier New, monospace";
+          ctx.fillText(toggleValue ? "ON" : "OFF", toggleX + toggleWidth + 70, y + 2);
+          ctx.font = "bold 28px Courier New, monospace";
         }
         y += 54;
       }
@@ -974,11 +1211,12 @@
       ctx.font = "24px Courier New, monospace";
       ctx.fillStyle = "#fff";
       const rules = [
-        'Space / Up Arrow: Jump (can perform one extra jump in air/bounce)',
+        'Space / Up Arrow / Touch Screen: Jump (can perform one extra jump in air/bounce)',
         'Down Arrow: Fast fall (when grounded)',
         'Left/Right Arrow: Move horizontally',
         'Click or Enter/Space: Select menu option / Interact with settings',
         'ESC: Back to main menu (from settings, about, commands)',
+        'Touch & Drag: Adjust settings sliders on mobile',
         'Score increases for each obstacle passed',
         'Game Over on collision',
         'High Score is saved in your browser',
