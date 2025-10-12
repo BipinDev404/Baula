@@ -101,7 +101,6 @@
 
     // Improved settings options with grouping and tooltips
     const settingsOptions = [
-      { group: 'Display', label: 'Full Horizontal', key: 'fullHorizontal', type: 'boolean', initialValue: false, defaultValue: false, tooltip: 'Use full horizontal screen width for better mobile experience.' },
       { group: 'Ball Physics', label: 'Jump Force', key: 'jumpForce', min: 5, max: 30, step: 1, type: 'number', initialValue: 12, defaultValue: 12, tooltip: 'How high the ball jumps.' },
       { group: 'Ball Physics', label: 'Gravity', key: 'gravity', min: 0.1, max: 2, step: 0.05, type: 'number', initialValue: 0.6, defaultValue: 0.6, tooltip: 'How fast the ball falls.' },
       { group: 'Ball Physics', label: 'Bounciness', key: 'bounciness', min: 0, max: 1, step: 0.05, type: 'number', initialValue: 0.7, defaultValue: 0.7, tooltip: 'How much the ball bounces on the ground.' },
@@ -115,8 +114,7 @@
     let homeButtonHover = false; // Add this for hover effect
     let homeImg = new Image(); // Create image object for home icon
     homeImg.src = "assets/home.png";
-    let obstacleSpeed = settingsOptions.find(opt => opt.key === 'obstacleSpeed').initialValue;
-    let fullHorizontal = settingsOptions.find(opt => opt.key === 'fullHorizontal').initialValue;
+  let obstacleSpeed = settingsOptions.find(opt => opt.key === 'obstacleSpeed').initialValue;
     let autopilotEnabled = false; // Hidden autopilot mode
 
     let stars = [];
@@ -136,7 +134,7 @@
     function resizeCanvas() {
       const isMobile = window.innerWidth <= 768 || window.innerHeight <= 600;
       
-      if (fullHorizontal || isMobile) {
+  if (isMobile) {
         // Use full screen width for mobile or when setting is enabled
         canvas.width = Math.max(window.innerWidth - 20, 800);
         canvas.height = Math.min(window.innerHeight - 40, 600);
@@ -344,28 +342,6 @@
               }
               return; // Handled click
             }
-          } else if (opt.type === 'boolean') {
-            const toggleX = canvas.width / 2 + 70; // Match the drawing coordinates
-            const toggleWidth = 80;
-            // --- Make label/toggle area clickable ---
-            const labelX = canvas.width / 2 - 350;
-            const labelWidth = 700;
-            const labelY = textY - 25;
-            const labelHeight = 50;
-            if (
-              mouseX > labelX && mouseX < labelX + labelWidth &&
-              mouseY > labelY && mouseY < labelY + labelHeight
-            ) {
-              selectedSetting = i;
-              clickedAny = true;
-              // Toggle the boolean value
-              if (opt.key === 'fullHorizontal') {
-                fullHorizontal = !fullHorizontal;
-                opt.initialValue = fullHorizontal;
-                resizeCanvas(); // Resize when this setting changes
-              }
-              return; // Handled click
-            }
           } else if (opt.type === 'button') {
             // Check if Reset or Commands button was clicked
             const buttonX = canvas.width / 2 - 150;
@@ -384,12 +360,6 @@
                       obstacleSpeed = opt2.defaultValue;
                     } else {
                       ball[opt2.key] = opt2.defaultValue;
-                    }
-                    opt2.initialValue = opt2.defaultValue;
-                  } else if (opt2.type === 'boolean') {
-                    if (opt2.key === 'fullHorizontal') {
-                      fullHorizontal = opt2.defaultValue;
-                      resizeCanvas(); // Resize when this setting changes
                     }
                     opt2.initialValue = opt2.defaultValue;
                   }
@@ -464,27 +434,6 @@
               opt.initialValue = newValue;
               break;
             }
-          } else if (opt.type === 'boolean') {
-            const textY = yStart + i * 50;
-            const toggleX = canvas.width / 2 + 70; // Match drawing coordinates
-            const toggleWidth = 80;
-            const labelX = canvas.width / 2 - 350;
-            const labelWidth = 700;
-            const labelY = textY - 25;
-            const labelHeight = 50;
-            if (
-              mouseX > labelX && mouseX < labelX + labelWidth &&
-              mouseY > labelY && mouseY < labelY + labelHeight
-            ) {
-              selectedSetting = i;
-              // Toggle the boolean value
-              if (opt.key === 'fullHorizontal') {
-                fullHorizontal = !fullHorizontal;
-                opt.initialValue = fullHorizontal;
-                resizeCanvas(); // Resize when this setting changes
-              }
-              break;
-            }
           }
         }
       }
@@ -495,7 +444,7 @@
       const mouseX = e.clientX - rect.left;
       const mouseY = e.clientY - rect.top;
 
-      if (gameState === 'settings' && isDraggingSlider) {
+  if (gameState === 'settings' && isDraggingSlider) {
         const opt = settingsOptions[selectedSetting];
         if (opt && opt.type === 'number') {
           const sliderX = canvas.width / 2 + 70; // Match drawing coordinates
@@ -601,9 +550,6 @@
 
           if (opt.key === 'obstacleSpeed') {
             obstacleSpeed = newValue;
-          } else if (opt.key === 'fullHorizontal') {
-            fullHorizontal = newValue;
-            resizeCanvas(); // Resize when this setting changes
           } else {
             ball[opt.key] = newValue;
           }
@@ -647,10 +593,6 @@
                 } else {
                   opt.initialValue = ball[opt.key];
                 }
-              } else if (opt.type === 'boolean') {
-                if (opt.key === 'fullHorizontal') {
-                  opt.initialValue = fullHorizontal;
-                }
               }
             });
           } else if (menuOptions[selectedMenu] === "About") {
@@ -687,18 +629,6 @@
             ball[opt.key] = value;
           }
           opt.initialValue = value;
-          e.preventDefault();
-        } else if (
-          (e.code === "ArrowLeft" || e.code === "ArrowRight" || e.code === "Enter" || e.code === "Space") &&
-          settingsOptions[selectedSetting].type === 'boolean'
-        ) {
-          // Toggle boolean value
-          const opt = settingsOptions[selectedSetting];
-          if (opt.key === 'fullHorizontal') {
-            fullHorizontal = !fullHorizontal;
-            opt.initialValue = fullHorizontal;
-            resizeCanvas(); // Resize when this setting changes
-          }
           e.preventDefault();
         } else if (e.code === "ArrowLeft") {
           // If on a special button, move left among them
@@ -738,12 +668,6 @@
                 obstacleSpeed = opt2.defaultValue;
               } else {
                 ball[opt2.key] = opt2.defaultValue;
-              }
-              opt2.initialValue = opt2.defaultValue;
-            } else if (opt2.type === 'boolean') {
-              if (opt2.key === 'fullHorizontal') {
-                fullHorizontal = opt2.defaultValue;
-                resizeCanvas(); // Resize when this setting changes
               }
               opt2.initialValue = opt2.defaultValue;
             }
@@ -1061,48 +985,6 @@
           ctx.textAlign = "right";
           ctx.font = "bold 26px Courier New, monospace";
           ctx.fillText(value.toFixed(2).replace(/\.00$/, ''), sliderX + sliderWidth + 70, y + 2);
-          ctx.font = "bold 28px Courier New, monospace";
-        } else if (opt.type === 'boolean') {
-          // --- Toggle Switch ---
-          const toggleX = panelX + 320;
-          const toggleY = y - 18;
-          const toggleWidth = 80;
-          const toggleHeight = 36;
-          const toggleRadius = toggleHeight / 2;
-          let toggleValue = opt.key === 'fullHorizontal' ? fullHorizontal : false;
-          
-          // Toggle background
-          ctx.save();
-          ctx.beginPath();
-          ctx.roundRect(toggleX, toggleY, toggleWidth, toggleHeight, toggleRadius);
-          ctx.fillStyle = toggleValue ? "#00FF99" : "#555";
-          ctx.shadowColor = i === selectedSetting ? (toggleValue ? "#00FF99" : "#555") : "transparent";
-          ctx.shadowBlur = i === selectedSetting ? 16 : 0;
-          ctx.fill();
-          ctx.shadowBlur = 0;
-          ctx.strokeStyle = i === selectedSetting ? "#00FF99" : "#444";
-          ctx.lineWidth = 2;
-          ctx.stroke();
-          
-          // Toggle circle
-          const circleX = toggleValue ? toggleX + toggleWidth - toggleRadius : toggleX + toggleRadius;
-          ctx.beginPath();
-          ctx.arc(circleX, toggleY + toggleRadius, toggleRadius - 4, 0, Math.PI * 2);
-          ctx.fillStyle = "#fff";
-          ctx.shadowColor = "#222";
-          ctx.shadowBlur = 8;
-          ctx.fill();
-          ctx.shadowBlur = 0;
-          ctx.strokeStyle = "#222";
-          ctx.lineWidth = 2;
-          ctx.stroke();
-          ctx.restore();
-          
-          // --- Value Text ---
-          ctx.fillStyle = i === selectedSetting ? "#00FF99" : "#fff";
-          ctx.textAlign = "right";
-          ctx.font = "bold 26px Courier New, monospace";
-          ctx.fillText(toggleValue ? "ON" : "OFF", toggleX + toggleWidth + 70, y + 2);
           ctx.font = "bold 28px Courier New, monospace";
         }
         y += 54;
