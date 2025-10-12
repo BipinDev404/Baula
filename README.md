@@ -10,7 +10,9 @@ A fast, minimalist arcade runner built with HTML5 Canvas. Dodge obstacles, snag 
 - Slick, responsive gameplay with polished ball physics and bounce
 - One extra mid-air jump for clutch saves
 - Dynamic obstacle speed scaling for a smooth difficulty ramp
-- Power-ups (gold star) that temporarily boost jump power
+- Dual power-up system:
+  - **Gold star**: Temporarily boost jump power (10 seconds)
+  - **Blue star2**: 10x speed boost + grass immunity (10 seconds) - rare, unlocks at score 20+
 - Parallax cloud layers and a drifting moon for atmospheric depth
 - Score counter with persistent High Score (saved in your browser)
 - Mobile-friendly: tap to jump; sliders and menus are touch-aware
@@ -52,7 +54,7 @@ Then visit `http://localhost:8000`.
 ```
 .
 ├─ index.html         # Game (HTML + JS in one file)
-└─ assets/            # Images (ball, grass, cloud variants, moon, star, home)
+└─ assets/            # Images (ball, grass, cloud variants, moon, star, star2, home)
 ```
 
 ## Tech stack

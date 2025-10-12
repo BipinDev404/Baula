@@ -132,6 +132,25 @@
     const POWER_UP_TEXT_DURATION = 60; // frames for 'Power Up!' text
     const NORMAL_JUMP_FORCE = ball.jumpForce;
     const POWER_JUMP_FORCE = 20;
+    
+    // Star2 system (speed boost + grass immunity)
+    let stars2 = [];
+    const star2Img = new Image();
+    star2Img.src = "assets/star2.png";
+    let nextStar2Frame = 0;
+    let speedBoostActive = false;
+    let speedBoostTimer = 0;
+    let speedBoostTextTimer = 0;
+    const SPEED_BOOST_DURATION = 600; // frames (10 seconds at 60fps)
+    const SPEED_BOOST_TEXT_DURATION = 60; // frames for 'Speed Boost!' text
+    const SPEED_MULTIPLIER = 10; // 10x speed
+    let grassImmunity = false;
+    
+    // Global power-up cooldown system
+    let powerUpCooldown = false;
+    let powerUpCooldownTimer = 0;
+    const POWER_UP_COOLDOWN_DURATION = 300; // frames (5 seconds at 60fps)
+    
     const GROUND_HEIGHT = 100;
 
     // Function to resize canvas based on screen size and settings
@@ -258,6 +277,12 @@
       ball.jumpForce = NORMAL_JUMP_FORCE;
       powerUpTimer = 0;
       powerUpTextTimer = 0;
+      speedBoostActive = false;
+      speedBoostTimer = 0;
+      speedBoostTextTimer = 0;
+      grassImmunity = false;
+      powerUpCooldown = false;
+      powerUpCooldownTimer = 0;
       damageFlashTimer = 0;
 
       // Randomize moon position
@@ -269,6 +294,12 @@
         layer.clouds = [];
       });
       addInitialClouds(); // Add initial clouds immediately
+      
+      // Reset stars and stars2
+      stars = [];
+      stars2 = [];
+      nextStarFrame = 0;
+      nextStar2Frame = 0;
     }
 
     canvas.addEventListener("click", function (e) {
@@ -1226,7 +1257,8 @@
         for (let i = 0; i < obstacles.length; i++) {
           obstacles[i].update();
 
-          if (
+          // Check collision only if grass immunity is not active
+          if (!grassImmunity &&
             ball.x < obstacles[i].x + obstacles[i].width &&
             ball.x + ball.width > obstacles[i].x &&
             ball.y < obstacles[i].y + obstacles[i].height &&
@@ -1246,8 +1278,8 @@
           }
         }
 
-        // --- Star Spawning (only if score >= 5) ---
-        if (score >= 5 && frames >= nextStarFrame) {
+        // --- Star Spawning (only if score >= 5 and no power-ups active/cooldown) ---
+        if (score >= 5 && frames >= nextStarFrame && !powerUpActive && !speedBoostActive && !powerUpCooldown) {
           const starSize = 80;
           const starY = canvas.height - GROUND_HEIGHT - starSize;
           const starX = canvas.width + starSize;
@@ -1272,6 +1304,32 @@
           nextStarFrame = frames + Math.floor(300 + Math.random() * 400);
         }
 
+        // --- Star2 Spawning (speed boost, only if score >= 20 and no power-ups active/cooldown) ---
+        if (score >= 20 && frames >= nextStar2Frame && !powerUpActive && !speedBoostActive && !powerUpCooldown) {
+          const star2Size = 90;
+          const star2Y = canvas.height - GROUND_HEIGHT - star2Size;
+          const star2X = canvas.width + star2Size;
+          let overlapsObstacle = false;
+          for (let obs of obstacles) {
+            if (
+              star2X < obs.x + obs.width &&
+              star2X + star2Size > obs.x
+            ) {
+              overlapsObstacle = true;
+              break;
+            }
+          }
+          if (!overlapsObstacle) {
+            stars2.push({
+              x: star2X,
+              y: star2Y,
+              size: star2Size,
+              speed: getDynamicObstacleSpeed() + (Math.random() - 0.5) * 1.5
+            });
+          }
+          nextStar2Frame = frames + Math.floor(800 + Math.random() * 1000); // Much less frequent than regular stars
+        }
+
         // --- Update and Draw Stars ---
         for (let i = 0; i < stars.length; i++) {
           const star = stars[i];
@@ -1293,11 +1351,13 @@
             ball.y < star.y + star.size &&
             ball.y + ball.height > star.y
           ) {
-            // Activate or extend power-up
-            powerUpActive = true;
-            powerUpTimer += POWER_UP_DURATION; // stack time
-            powerUpTextTimer = POWER_UP_TEXT_DURATION;
-            ball.jumpForce = POWER_JUMP_FORCE;
+            // Only activate if no other power-up is active
+            if (!powerUpActive && !speedBoostActive) {
+              powerUpActive = true;
+              powerUpTimer = POWER_UP_DURATION;
+              powerUpTextTimer = POWER_UP_TEXT_DURATION;
+              ball.jumpForce = POWER_JUMP_FORCE;
+            }
             stars.splice(i, 1);
             i--;
             continue;
@@ -1305,6 +1365,44 @@
           // Remove if offscreen
           if (star.x + star.size < 0) {
             stars.splice(i, 1);
+            i--;
+          }
+        }
+
+        // --- Update and Draw Stars2 (Speed Boost) ---
+        for (let i = 0; i < stars2.length; i++) {
+          const star2 = stars2[i];
+          const dynSpeed = star2.speed;
+          star2.x -= dynSpeed;
+          star2.speed = dynSpeed;
+          // Draw blue/cyan glow for star2
+          ctx.save();
+          ctx.shadowColor = '#00CCFF'; // blue/cyan glow
+          ctx.shadowBlur = 50;
+          ctx.drawImage(star2Img, star2.x, star2.y, star2.size, star2.size);
+          ctx.shadowBlur = 0;
+          ctx.restore();
+          // Collision with ball
+          if (
+            ball.x < star2.x + star2.size &&
+            ball.x + ball.width > star2.x &&
+            ball.y < star2.y + star2.size &&
+            ball.y + ball.height > star2.y
+          ) {
+            // Only activate if no other power-up is active
+            if (!powerUpActive && !speedBoostActive) {
+              speedBoostActive = true;
+              speedBoostTimer = SPEED_BOOST_DURATION;
+              speedBoostTextTimer = SPEED_BOOST_TEXT_DURATION;
+              grassImmunity = true;
+            }
+            stars2.splice(i, 1);
+            i--;
+            continue;
+          }
+          // Remove if offscreen
+          if (star2.x + star2.size < 0) {
+            stars2.splice(i, 1);
             i--;
           }
         }
@@ -1324,6 +1422,39 @@
           if (powerUpTimer <= 0) {
             powerUpActive = false;
             ball.jumpForce = NORMAL_JUMP_FORCE;
+            // Start cooldown period
+            powerUpCooldown = true;
+            powerUpCooldownTimer = POWER_UP_COOLDOWN_DURATION;
+          }
+        }
+        
+        // --- Speed Boost logic ---
+        if (speedBoostActive) {
+          // Visual effect: blue/cyan glow around ball (same size as ball, like jump power-up)
+          ctx.save();
+          ctx.globalAlpha = 0.5;
+          ctx.beginPath();
+          ctx.arc(ball.x + ball.width / 2, ball.y + ball.height / 2, ball.width / 2, 0, Math.PI * 2);
+          ctx.fillStyle = '#00CCFF';
+          ctx.shadowColor = '#00CCFF';
+          ctx.shadowBlur = 30;
+          ctx.fill();
+          ctx.restore();
+          speedBoostTimer--;
+          if (speedBoostTimer <= 0) {
+            speedBoostActive = false;
+            grassImmunity = false;
+            // Start cooldown period
+            powerUpCooldown = true;
+            powerUpCooldownTimer = POWER_UP_COOLDOWN_DURATION;
+          }
+        }
+        
+        // --- Power-up cooldown logic ---
+        if (powerUpCooldown) {
+          powerUpCooldownTimer--;
+          if (powerUpCooldownTimer <= 0) {
+            powerUpCooldown = false;
           }
         }
         // --- Power Up! text ---
@@ -1337,6 +1468,19 @@
           ctx.fillText("Power Up!", ball.x + ball.width / 2, ball.y - 20);
           ctx.restore();
           powerUpTextTimer--;
+        }
+        
+        // --- Speed Boost! text ---
+        if (speedBoostTextTimer > 0) {
+          ctx.save();
+          ctx.font = "bold 30px Courier New, monospace";
+          ctx.fillStyle = "#00CCFF";
+          ctx.textAlign = "center";
+          ctx.shadowColor = "#00CCFF";
+          ctx.shadowBlur = 20;
+          ctx.fillText("Speed Boost!", ball.x + ball.width / 2, ball.y - 60);
+          ctx.restore();
+          speedBoostTextTimer--;
         }
 
         ctx.fillStyle = "white";
@@ -1425,6 +1569,9 @@
       } else if (gameState === "gameover") {
         powerUpActive = false;
         ball.jumpForce = NORMAL_JUMP_FORCE;
+        speedBoostActive = false;
+        grassImmunity = false;
+        powerUpCooldown = false;
         if (score > highScore) {
           highScore = score;
           localStorage.setItem('highScore', highScore);
@@ -1466,6 +1613,9 @@
       } else if (gameState === "menu") {
         powerUpActive = false;
         ball.jumpForce = NORMAL_JUMP_FORCE;
+        speedBoostActive = false;
+        grassImmunity = false;
+        powerUpCooldown = false;
         drawMenu();
       }
 
@@ -1474,7 +1624,8 @@
 
     // Ball movement speedup factor
     function getBallMoveSpeed() {
-      return 10 + Math.min(score * 0.15, 20); // base 10, up to +20 at high score
+      const baseSpeed = 10 + Math.min(score * 0.15, 20); // base 10, up to +20 at high score
+      return speedBoostActive ? baseSpeed * SPEED_MULTIPLIER : baseSpeed;
     }
 
     // Obstacle/star speedup factor
