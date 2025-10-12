@@ -151,7 +151,35 @@
     let powerUpCooldownTimer = 0;
     const POWER_UP_COOLDOWN_DURATION = 300; // frames (5 seconds at 60fps)
     
+    // Background music
+    const bgMusic = new Audio();
+    bgMusic.src = "assets/BG.wav";
+    bgMusic.loop = true;
+    bgMusic.volume = 0.5; // Set volume to 50%
+    
     const GROUND_HEIGHT = 100;
+
+    // Background music control functions
+    function playBackgroundMusic() {
+      try {
+        bgMusic.currentTime = 0; // Start from beginning
+        bgMusic.play().catch(error => {
+          console.log("Audio play failed:", error);
+          // Browser may require user interaction before playing audio
+        });
+      } catch (error) {
+        console.log("Audio error:", error);
+      }
+    }
+    
+    function stopBackgroundMusic() {
+      try {
+        bgMusic.pause();
+        bgMusic.currentTime = 0; // Reset to beginning
+      } catch (error) {
+        console.log("Audio stop error:", error);
+      }
+    }
 
     // Function to resize canvas based on screen size and settings
     function resizeCanvas() {
@@ -300,6 +328,9 @@
       stars2 = [];
       nextStarFrame = 0;
       nextStar2Frame = 0;
+      
+      // Start background music
+      playBackgroundMusic();
     }
 
     canvas.addEventListener("click", function (e) {
@@ -319,6 +350,7 @@
             if (menuOptions[i] === "Play") {
               gameState = "playing";
               resetGame();
+              playBackgroundMusic(); // Start music when starting game
             } else if (menuOptions[i] === "Settings") {
               gameState = "settings";
               // Initialize settings values when entering settings menu
@@ -430,11 +462,13 @@
         ) {
           gameState = "menu";
           homeButtonHover = false; // Reset hover state
+          stopBackgroundMusic(); // Stop music when going to menu
           return;
         }
         // If not clicked, restart game
         gameState = "playing";
         resetGame();
+        playBackgroundMusic(); // Start music when restarting
       }
     });
 
@@ -618,6 +652,7 @@
           if (menuOptions[selectedMenu] === "Play") {
             gameState = "playing";
             resetGame();
+            playBackgroundMusic(); // Start music when starting game
           } else if (menuOptions[selectedMenu] === "Settings") {
             gameState = "settings";
             // Initialize settings values when entering settings menu
@@ -735,10 +770,12 @@
       if (gameState === "gameover") {
         if (e.key === "h" || e.key === "H") {
           gameState = "menu";
+          stopBackgroundMusic(); // Stop music when going to menu
           return;
         }
         gameState = "playing";
         resetGame();
+        playBackgroundMusic(); // Start music when restarting
         e.preventDefault();
         return;
       }
@@ -1268,6 +1305,7 @@
             gameOver = true;
             waitingForRestart = true;
             gameState = "gameover";
+            stopBackgroundMusic(); // Stop music when game ends
             break;
           }
 

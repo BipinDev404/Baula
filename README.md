@@ -15,6 +15,7 @@ A fast, minimalist arcade runner built with HTML5 Canvas. Dodge obstacles, snag 
   - **Blue star2**: 10x speed boost + grass immunity (10 seconds) - rare, unlocks at score 20+
 - Parallax cloud layers and a drifting moon for atmospheric depth
 - Score counter with persistent High Score (saved in your browser)
+- Background music that plays during gameplay (loops automatically)
 - Mobile-friendly: tap to jump; sliders and menus are touch-aware
 - Keyboard and mouse support across menus/gameplay
 ![alt text](image-1.png)
@@ -54,7 +55,7 @@ Then visit `http://localhost:8000`.
 ```
 .
 ├─ index.html         # Game (HTML + JS in one file)
-└─ assets/            # Images (ball, grass, cloud variants, moon, star, star2, home)
+└─ assets/            # Images (ball, grass, cloud variants, moon, star, star2, home) + BG.wav audio
 ```
 
 ## Tech stack
