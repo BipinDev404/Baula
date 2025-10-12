@@ -1,9 +1,9 @@
 # BAULA
-
+![alt text](image.png)
 A fast, minimalist arcade runner built with HTML5 Canvas. Dodge obstacles, snag power-ups, and chase a new high score—all in the browser.
 
 ## Demo
-- Live: Add your GitHub Pages link here after deploying (for example: `https://bipindev404.github.io/Baula/`).
+- Live: Add your GitHub Pages link here after deploying (for example: `https://baula.netlify.app/`).
 - Local: Open `index.html` in your browser, or run a tiny static server (optional).
 
 ## Features
@@ -15,7 +15,7 @@ A fast, minimalist arcade runner built with HTML5 Canvas. Dodge obstacles, snag 
 - Score counter with persistent High Score (saved in your browser)
 - Mobile-friendly: tap to jump; sliders and menus are touch-aware
 - Keyboard and mouse support across menus/gameplay
-
+![alt text](image-1.png)
 ## Controls
 Desktop
 - Space or Up Arrow: Jump (one extra jump while airborne)
@@ -27,7 +27,7 @@ Desktop
 Mobile/Touch
 - Tap: Jump (supports one extra jump)
 - Touch & drag: Adjust sliders in Settings
-
+![alt text](image-2.png)
 Pro tip
 - On Game Over, press any key to restart or click the home icon (top-right) to go back to the main menu.
 
