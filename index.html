@@ -103,22 +103,121 @@
       color: `rgba(${100 + Math.random() * 155},${200 + Math.random() * 55},${100 + Math.random() * 155},0.15)`
     }));
 
+    const DEFAULT_MUSIC_VOLUME = 0.5;
+    const DEFAULT_SFX_VOLUME = 0.8;
+    let musicVolume = DEFAULT_MUSIC_VOLUME;
+    let soundVolume = DEFAULT_SFX_VOLUME;
+    let musicMuted = false;
+    let soundMuted = false;
+
     // Improved settings options with grouping and tooltips
     const settingsOptions = [
       { group: 'Ball Physics', label: 'Jump Force', key: 'jumpForce', min: 5, max: 30, step: 1, type: 'number', initialValue: 12, defaultValue: 12, tooltip: 'How high the ball jumps.' },
       { group: 'Ball Physics', label: 'Gravity', key: 'gravity', min: 0.1, max: 2, step: 0.05, type: 'number', initialValue: 0.6, defaultValue: 0.6, tooltip: 'How fast the ball falls.' },
       { group: 'Ball Physics', label: 'Bounciness', key: 'bounciness', min: 0, max: 1, step: 0.05, type: 'number', initialValue: 0.7, defaultValue: 0.7, tooltip: 'How much the ball bounces on the ground.' },
       { group: 'Obstacles', label: 'Obstacle Speed', key: 'obstacleSpeed', min: 2, max: 15, step: 0.5, type: 'number', initialValue: 6, defaultValue: 6, tooltip: 'How fast obstacles move.' },
+      { group: 'Audio', label: 'Music', key: 'musicMuted', type: 'toggle', initialValue: !musicMuted, defaultValue: true, tooltip: 'Toggle background music on or off.' },
+      { group: 'Audio', label: 'Sound FX', key: 'soundMuted', type: 'toggle', initialValue: !soundMuted, defaultValue: true, tooltip: 'Toggle sound effects on or off.' },
       { group: 'General', label: 'Default', key: 'reset', type: 'button', tooltip: 'Restore all settings to their default values.' },
       { group: 'General', label: 'Commands', key: 'commands', type: 'button', tooltip: 'View all controls and rules.' },
       { group: 'General', label: 'Back', key: 'back', type: 'button', tooltip: 'Return to the main menu.' },
     ];
+    const SPECIAL_SETTING_KEYS = ['reset', 'commands', 'back'];
+    const SETTINGS_LAYOUT = {
+      panelTop: 10,
+      panelWidth: 800,
+      basePanelHeight: 560,
+      startY: 90,
+      groupGap: 35,
+      rowGap: 48,
+      sliderWidth: 300,
+      sliderHeight: 20,
+      toggleWidth: 150,
+      toggleHeight: 40,
+      buttonWidth: 150,
+      buttonHeight: 45,
+      buttonSpacing: 40,
+      footerOffset: 0
+    };
     let selectedSetting = 0;
     let isDraggingSlider = false;
     let homeButtonHover = false; // Add this for hover effect
     let homeImg = new Image(); // Create image object for home icon
     homeImg.src = "assets/home.png";
   let obstacleSpeed = settingsOptions.find(opt => opt.key === 'obstacleSpeed').initialValue;
+
+  function getSettingValue(opt) {
+    switch (opt.key) {
+      case 'obstacleSpeed':
+        return obstacleSpeed;
+      case 'musicMuted':
+        return !musicMuted; // Inverted: true means ON, false means OFF
+      case 'soundMuted':
+        return !soundMuted; // Inverted: true means ON, false means OFF
+      default:
+        return ball[opt.key];
+    }
+  }
+
+  function setSettingValue(opt, value) {
+    switch (opt.key) {
+      case 'obstacleSpeed':
+        obstacleSpeed = value;
+        break;
+      case 'musicMuted':
+        // Inverted logic: value=true means music ON, value=false means music OFF
+        musicMuted = !Boolean(value);
+        if (musicMuted) {
+          bgMusic.pause();
+        } else {
+          bgMusic.volume = musicVolume;
+          if (gameState === 'playing') {
+            playBackgroundMusic();
+          }
+        }
+        break;
+      case 'soundMuted':
+        // Inverted logic: value=true means sound ON, value=false means sound OFF
+        soundMuted = !Boolean(value);
+        break;
+      default:
+        ball[opt.key] = value;
+        break;
+    }
+    opt.initialValue = value;
+  }
+
+  function toggleSetting(opt) {
+    setSettingValue(opt, !getSettingValue(opt));
+  }
+
+  function syncAllSettings() {
+    settingsOptions.forEach(opt => {
+      opt.initialValue = getSettingValue(opt);
+    });
+  }
+
+  function getSettingsLayoutInfo() {
+    const positions = new Map();
+    let y = SETTINGS_LAYOUT.startY;
+    let lastGroup = '';
+    for (let i = 0; i < settingsOptions.length; i++) {
+      const opt = settingsOptions[i];
+      if (SPECIAL_SETTING_KEYS.includes(opt.key)) {
+        continue;
+      }
+      if (opt.group && opt.group !== lastGroup) {
+        y += SETTINGS_LAYOUT.groupGap;
+        lastGroup = opt.group;
+      }
+      positions.set(i, y);
+      y += SETTINGS_LAYOUT.rowGap;
+    }
+    const specialIndices = settingsOptions
+      .map((opt, idx) => SPECIAL_SETTING_KEYS.includes(opt.key) ? idx : -1)
+      .filter(idx => idx !== -1);
+    return { positions, lastY: y, specialIndices };
+  }
     let autopilotEnabled = false; // Hidden autopilot mode
 
     let stars = [];
@@ -155,14 +254,23 @@
     const bgMusic = new Audio();
     bgMusic.src = "assets/BG.wav";
     bgMusic.loop = true;
-    bgMusic.volume = 0.5; // Set volume to 50%
+    bgMusic.volume = musicVolume;
+
+    let audioCtx = null;
+    let noiseBuffer = null;
     
     const GROUND_HEIGHT = 100;
 
     // Background music control functions
-    function playBackgroundMusic() {
+    function playBackgroundMusic(restart = false) {
+      if (musicMuted) {
+        return;
+      }
       try {
-        bgMusic.currentTime = 0; // Start from beginning
+        if (restart) {
+          bgMusic.currentTime = 0;
+        }
+        bgMusic.volume = musicVolume;
         bgMusic.play().catch(error => {
           console.log("Audio play failed:", error);
           // Browser may require user interaction before playing audio
@@ -179,6 +287,324 @@
       } catch (error) {
         console.log("Audio stop error:", error);
       }
+    }
+
+    function ensureAudioContext() {
+      const AudioContextCtor = window.AudioContext || window.webkitAudioContext;
+      if (!AudioContextCtor) {
+        return null;
+      }
+      if (!audioCtx) {
+        audioCtx = new AudioContextCtor();
+      }
+      if (audioCtx.state === "suspended") {
+        audioCtx.resume().catch(() => { /* ignore resume errors */ });
+      }
+      return audioCtx;
+    }
+
+    function canPlaySfx() {
+      return !soundMuted && soundVolume > 0.001;
+    }
+
+    function getNoiseBuffer(ctx) {
+      if (noiseBuffer) {
+        return noiseBuffer;
+      }
+      const duration = 0.4;
+      const buffer = ctx.createBuffer(1, ctx.sampleRate * duration, ctx.sampleRate);
+      const data = buffer.getChannelData(0);
+      for (let i = 0; i < data.length; i++) {
+        data[i] = Math.random() * 2 - 1;
+      }
+      noiseBuffer = buffer;
+      return noiseBuffer;
+    }
+
+    function playJumpSound(force) {
+      if (!canPlaySfx()) {
+        return;
+      }
+      const ctx = ensureAudioContext();
+      if (!ctx) {
+        return;
+      }
+      const now = ctx.currentTime;
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      const baseline = NORMAL_JUMP_FORCE || 12;
+      const intensity = Math.min(Math.max(force / baseline, 0.5), 2);
+      const startFreq = 220 + intensity * 160;
+      const endFreq = Math.max(120, startFreq - 140 * intensity);
+
+      osc.type = "triangle";
+      osc.frequency.setValueAtTime(startFreq, now);
+      osc.frequency.exponentialRampToValueAtTime(endFreq, now + 0.3);
+
+      const peakGain = soundVolume * 0.55 * Math.min(intensity, 1.4);
+      gain.gain.setValueAtTime(peakGain, now);
+      gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.32);
+
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+
+      osc.start(now);
+      osc.stop(now + 0.35);
+      osc.onended = () => {
+        osc.disconnect();
+        gain.disconnect();
+      };
+    }
+
+    function playLandingSound(surface, impactVelocity) {
+      if (!canPlaySfx()) {
+        return;
+      }
+      const ctx = ensureAudioContext();
+      if (!ctx) {
+        return;
+      }
+      const now = ctx.currentTime;
+      const intensity = Math.min(Math.max(impactVelocity / 18, 0.2), 1.6);
+
+      // Shared low-frequency thump
+      const thumpOsc = ctx.createOscillator();
+      thumpOsc.type = "sine";
+      const thumpGain = ctx.createGain();
+      const thumpStartFreq = surface === "grass" ? 120 : 90;
+      const thumpEndFreq = surface === "grass" ? 70 : 60;
+      thumpOsc.frequency.setValueAtTime(thumpStartFreq + intensity * 30, now);
+      thumpOsc.frequency.exponentialRampToValueAtTime(thumpEndFreq, now + 0.35);
+      thumpGain.gain.setValueAtTime(soundVolume * 0.6 * intensity, now);
+      thumpGain.gain.exponentialRampToValueAtTime(0.0001, now + 0.4);
+      thumpOsc.connect(thumpGain);
+      thumpGain.connect(ctx.destination);
+      thumpOsc.start(now);
+      thumpOsc.stop(now + 0.4);
+      thumpOsc.onended = () => {
+        thumpOsc.disconnect();
+        thumpGain.disconnect();
+      };
+
+      if (surface === "grass") {
+        const noiseSource = ctx.createBufferSource();
+        noiseSource.buffer = getNoiseBuffer(ctx);
+        const filter = ctx.createBiquadFilter();
+        filter.type = "bandpass";
+        filter.frequency.setValueAtTime(1500, now);
+        filter.Q.setValueAtTime(1, now);
+        const noiseGain = ctx.createGain();
+        noiseGain.gain.setValueAtTime(soundVolume * 0.4 * intensity, now);
+        noiseGain.gain.exponentialRampToValueAtTime(0.0001, now + 0.3);
+        noiseSource.connect(filter);
+        filter.connect(noiseGain);
+        noiseGain.connect(ctx.destination);
+        noiseSource.start(now);
+        noiseSource.stop(now + 0.32);
+        noiseSource.onended = () => {
+          noiseSource.disconnect();
+          filter.disconnect();
+          noiseGain.disconnect();
+        };
+      }
+    }
+
+    function playJumpBoostSound() {
+      if (!canPlaySfx()) {
+        return;
+      }
+      const ctx = ensureAudioContext();
+      if (!ctx) {
+        return;
+      }
+      const now = ctx.currentTime;
+      
+      // Rising arpeggio with sparkle effect
+      const frequencies = [440, 554.37, 659.25, 880]; // A4, C#5, E5, A5
+      frequencies.forEach((freq, index) => {
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        
+        osc.type = "sine";
+        osc.frequency.setValueAtTime(freq, now);
+        
+        const startTime = now + index * 0.08;
+        const duration = 0.3;
+        
+        gain.gain.setValueAtTime(0, startTime);
+        gain.gain.linearRampToValueAtTime(soundVolume * 0.4, startTime + 0.02);
+        gain.gain.exponentialRampToValueAtTime(0.0001, startTime + duration);
+        
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+        
+        osc.start(startTime);
+        osc.stop(startTime + duration);
+        osc.onended = () => {
+          osc.disconnect();
+          gain.disconnect();
+        };
+      });
+      
+      // Add shimmer/sparkle with high-frequency modulation
+      const shimmerOsc = ctx.createOscillator();
+      const shimmerGain = ctx.createGain();
+      const shimmerLFO = ctx.createOscillator();
+      const shimmerLFOGain = ctx.createGain();
+      
+      shimmerOsc.type = "triangle";
+      shimmerOsc.frequency.setValueAtTime(1760, now); // A6
+      
+      shimmerLFO.type = "sine";
+      shimmerLFO.frequency.setValueAtTime(8, now); // 8 Hz vibrato
+      shimmerLFOGain.gain.setValueAtTime(100, now);
+      
+      shimmerLFO.connect(shimmerLFOGain);
+      shimmerLFOGain.connect(shimmerOsc.frequency);
+      
+      shimmerGain.gain.setValueAtTime(soundVolume * 0.25, now);
+      shimmerGain.gain.exponentialRampToValueAtTime(0.0001, now + 0.5);
+      
+      shimmerOsc.connect(shimmerGain);
+      shimmerGain.connect(ctx.destination);
+      
+      shimmerLFO.start(now);
+      shimmerOsc.start(now);
+      shimmerLFO.stop(now + 0.5);
+      shimmerOsc.stop(now + 0.5);
+      shimmerOsc.onended = () => {
+        shimmerOsc.disconnect();
+        shimmerGain.disconnect();
+        shimmerLFO.disconnect();
+        shimmerLFOGain.disconnect();
+      };
+    }
+
+    function playSpeedBoostSound() {
+      if (!canPlaySfx()) {
+        return;
+      }
+      const ctx = ensureAudioContext();
+      if (!ctx) {
+        return;
+      }
+      const now = ctx.currentTime;
+      
+      // Swoosh effect with descending pitch
+      const swooshOsc = ctx.createOscillator();
+      const swooshGain = ctx.createGain();
+      const swooshFilter = ctx.createBiquadFilter();
+      
+      swooshOsc.type = "sawtooth";
+      swooshFilter.type = "lowpass";
+      swooshFilter.Q.setValueAtTime(5, now);
+      
+      // Rapid frequency sweep for "whoosh" effect
+      swooshOsc.frequency.setValueAtTime(800, now);
+      swooshOsc.frequency.exponentialRampToValueAtTime(200, now + 0.25);
+      
+      swooshFilter.frequency.setValueAtTime(2000, now);
+      swooshFilter.frequency.exponentialRampToValueAtTime(400, now + 0.25);
+      
+      swooshGain.gain.setValueAtTime(soundVolume * 0.5, now);
+      swooshGain.gain.exponentialRampToValueAtTime(0.0001, now + 0.3);
+      
+      swooshOsc.connect(swooshFilter);
+      swooshFilter.connect(swooshGain);
+      swooshGain.connect(ctx.destination);
+      
+      swooshOsc.start(now);
+      swooshOsc.stop(now + 0.35);
+      swooshOsc.onended = () => {
+        swooshOsc.disconnect();
+        swooshFilter.disconnect();
+        swooshGain.disconnect();
+      };
+      
+      // Add metallic "zoom" layer
+      const zoomOsc = ctx.createOscillator();
+      const zoomGain = ctx.createGain();
+      const zoomFilter = ctx.createBiquadFilter();
+      
+      zoomOsc.type = "square";
+      zoomFilter.type = "bandpass";
+      zoomFilter.frequency.setValueAtTime(1200, now);
+      zoomFilter.Q.setValueAtTime(10, now);
+      
+      zoomOsc.frequency.setValueAtTime(600, now);
+      zoomOsc.frequency.exponentialRampToValueAtTime(150, now + 0.2);
+      
+      zoomGain.gain.setValueAtTime(soundVolume * 0.3, now);
+      zoomGain.gain.exponentialRampToValueAtTime(0.0001, now + 0.25);
+      
+      zoomOsc.connect(zoomFilter);
+      zoomFilter.connect(zoomGain);
+      zoomGain.connect(ctx.destination);
+      
+      zoomOsc.start(now);
+      zoomOsc.stop(now + 0.28);
+      zoomOsc.onended = () => {
+        zoomOsc.disconnect();
+        zoomFilter.disconnect();
+        zoomGain.disconnect();
+      };
+      
+      // Jet engine-like noise burst
+      const noiseSource = ctx.createBufferSource();
+      noiseSource.buffer = getNoiseBuffer(ctx);
+      const noiseFilter = ctx.createBiquadFilter();
+      const noiseGain = ctx.createGain();
+      
+      noiseFilter.type = "highpass";
+      noiseFilter.frequency.setValueAtTime(800, now);
+      noiseFilter.frequency.exponentialRampToValueAtTime(2000, now + 0.15);
+      
+      noiseGain.gain.setValueAtTime(soundVolume * 0.35, now);
+      noiseGain.gain.exponentialRampToValueAtTime(0.0001, now + 0.2);
+      
+      noiseSource.connect(noiseFilter);
+      noiseFilter.connect(noiseGain);
+      noiseGain.connect(ctx.destination);
+      
+      noiseSource.start(now);
+      noiseSource.stop(now + 0.22);
+      noiseSource.onended = () => {
+        noiseSource.disconnect();
+        noiseFilter.disconnect();
+        noiseGain.disconnect();
+      };
+    }
+
+    function playPowerUpEndSound() {
+      if (!canPlaySfx()) {
+        return;
+      }
+      const ctx = ensureAudioContext();
+      if (!ctx) {
+        return;
+      }
+      const now = ctx.currentTime;
+      
+      // Gentle descending chime
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      
+      osc.type = "sine";
+      osc.frequency.setValueAtTime(880, now); // A5
+      osc.frequency.exponentialRampToValueAtTime(440, now + 0.4); // A4
+      
+      gain.gain.setValueAtTime(soundVolume * 0.3, now);
+      gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.5);
+      
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      
+      osc.start(now);
+      osc.stop(now + 0.5);
+      osc.onended = () => {
+        osc.disconnect();
+        gain.disconnect();
+      };
     }
 
     // Function to resize canvas based on screen size and settings
@@ -328,9 +754,9 @@
       stars2 = [];
       nextStarFrame = 0;
       nextStar2Frame = 0;
-      
+
       // Start background music
-      playBackgroundMusic();
+      playBackgroundMusic(true);
     }
 
     canvas.addEventListener("click", function (e) {
@@ -350,19 +776,10 @@
             if (menuOptions[i] === "Play") {
               gameState = "playing";
               resetGame();
-              playBackgroundMusic(); // Start music when starting game
+              playBackgroundMusic(true); // Start music when starting game
             } else if (menuOptions[i] === "Settings") {
               gameState = "settings";
-              // Initialize settings values when entering settings menu
-              settingsOptions.forEach(opt => {
-                if (opt.type === 'number') {
-                  if (opt.key === 'obstacleSpeed') {
-                    opt.initialValue = obstacleSpeed;
-                  } else {
-                    opt.initialValue = ball[opt.key];
-                  }
-                }
-              });
+              syncAllSettings();
             } else if (menuOptions[i] === "About") {
               gameState = "about";
             }
@@ -370,82 +787,101 @@
           }
         }
       } else if (gameState === "settings") {
-        let yStart = 180;
-        let clickedAny = false;
-        for (let i = 0; i < settingsOptions.length; i++) {
-          const opt = settingsOptions[i];
-          const textY = yStart + i * 50;
+        const panelWidth = SETTINGS_LAYOUT.panelWidth;
+        const panelX = canvas.width / 2 - panelWidth / 2;
+        const sliderX = panelX + 360;
+        const sliderWidth = SETTINGS_LAYOUT.sliderWidth;
+        const toggleWidth = SETTINGS_LAYOUT.toggleWidth;
+        const toggleHeight = SETTINGS_LAYOUT.toggleHeight;
+        const labelX = panelX + 50;
+        const labelWidth = panelWidth - 100;
+        const { positions, lastY, specialIndices } = getSettingsLayoutInfo();
+
+        for (const [idx, rowCenterY] of positions.entries()) {
+          const opt = settingsOptions[idx];
+          const rowTop = rowCenterY - 30;
+          const rowHeight = 50;
+
           if (opt.type === 'number') {
-            const sliderX = canvas.width / 2 + 70; // Match the drawing coordinates
-            const sliderWidth = 260; // Match the drawing width
-            const sliderY = textY - 10; // Adjust for vertical centering
-            // --- Make label/value area clickable too ---
-            const labelX = canvas.width / 2 - 350; // left of slider
-            const labelWidth = 700; // covers label and value
-            const labelY = textY - 25;
-            const labelHeight = 50;
+            const sliderY = rowCenterY - SETTINGS_LAYOUT.sliderHeight;
             if (
               mouseX > labelX && mouseX < labelX + labelWidth &&
-              mouseY > labelY && mouseY < labelY + labelHeight
+              mouseY > rowTop && mouseY < rowTop + rowHeight
             ) {
-              selectedSetting = i; // Select this setting
-              clickedAny = true;
-              // If click is on slider bar, start dragging
+              selectedSetting = idx;
               if (
                 mouseX > sliderX && mouseX < sliderX + sliderWidth &&
-                mouseY > sliderY && mouseY < sliderY + 20
+                mouseY > sliderY && mouseY < sliderY + 18
               ) {
                 const clickRatio = (mouseX - sliderX) / sliderWidth;
                 let newValue = opt.min + clickRatio * (opt.max - opt.min);
-                newValue = Math.round(newValue / opt.step) * opt.step; // Snap to step
-                newValue = Math.max(opt.min, Math.min(opt.max, newValue)); // Clamp
-                if (opt.key === 'obstacleSpeed') {
-                  obstacleSpeed = newValue;
-                } else {
-                  ball[opt.key] = newValue;
-                }
-                opt.initialValue = newValue; // Update stored value
-                isDraggingSlider = true; // Start dragging
+                newValue = Math.round(newValue / opt.step) * opt.step;
+                newValue = Math.max(opt.min, Math.min(opt.max, newValue));
+                setSettingValue(opt, newValue);
+                isDraggingSlider = true;
               }
-              return; // Handled click
+              return;
             }
-          } else if (opt.type === 'button') {
-            // Check if Reset or Commands button was clicked
-            const buttonX = canvas.width / 2 - 150;
-            const buttonY = textY - 20;
-            const buttonWidth = 300;
-            const buttonHeight = 40;
-            if (mouseX > buttonX && mouseX < buttonX + buttonWidth &&
-              mouseY > buttonY && mouseY < buttonY + buttonHeight) {
-              selectedSetting = i;
-              clickedAny = true;
+          } else if (opt.type === 'toggle') {
+            const toggleX = sliderX;
+            const toggleY = rowCenterY - toggleHeight;
+            if (
+              mouseX > toggleX && mouseX < toggleX + toggleWidth &&
+              mouseY > toggleY && mouseY < toggleY + toggleHeight
+            ) {
+              selectedSetting = idx;
+              toggleSetting(opt);
+              return;
+            }
+            if (
+              mouseX > labelX && mouseX < labelX + labelWidth &&
+              mouseY > rowTop && mouseY < rowTop + rowHeight
+            ) {
+              selectedSetting = idx;
+              toggleSetting(opt);
+              return;
+            }
+          }
+        }
+
+        const buttonCount = specialIndices.length;
+        if (buttonCount > 0) {
+          const buttonRowY = lastY + 10;
+          const buttonWidth = SETTINGS_LAYOUT.buttonWidth;
+          const buttonHeight = SETTINGS_LAYOUT.buttonHeight;
+          const buttonSpacing = SETTINGS_LAYOUT.buttonSpacing;
+          const totalRowWidth = buttonWidth * buttonCount + buttonSpacing * (buttonCount - 1);
+          const startX = canvas.width / 2 - totalRowWidth / 2;
+          for (let j = 0; j < buttonCount; j++) {
+            const idx = specialIndices[j];
+            const opt = settingsOptions[idx];
+            const buttonX = startX + j * (buttonWidth + buttonSpacing);
+            const buttonY = buttonRowY;
+            if (
+              mouseX > buttonX && mouseX < buttonX + buttonWidth &&
+              mouseY > buttonY && mouseY < buttonY + buttonHeight
+            ) {
+              selectedSetting = idx;
               if (opt.key === 'reset') {
-                // Reset all settings to their default values
                 settingsOptions.forEach(opt2 => {
-                  if (opt2.type === 'number') {
-                    if (opt2.key === 'obstacleSpeed') {
-                      obstacleSpeed = opt2.defaultValue;
-                    } else {
-                      ball[opt2.key] = opt2.defaultValue;
-                    }
-                    opt2.initialValue = opt2.defaultValue;
+                  if (opt2.type === 'number' || opt2.type === 'toggle') {
+                    setSettingValue(opt2, opt2.defaultValue);
                   }
                 });
+                syncAllSettings();
                 return;
-              } else if (opt.key === 'commands') {
+              }
+              if (opt.key === 'commands') {
                 gameState = 'commands';
                 return;
-              } else if (opt.key === 'back') {
+              }
+              if (opt.key === 'back') {
                 gameState = 'menu';
                 return;
               }
             }
           }
         }
-        // --- Remove: If no setting was clicked, assume click to return to menu ---
-        // if (!clickedAny) {
-        //   gameState = "menu";
-        // }
       } else if (gameState === "commands" || gameState === "about") {
         gameState = "menu"; // Click anywhere to return to menu from commands/about
       }
@@ -468,7 +904,7 @@
         // If not clicked, restart game
         gameState = "playing";
         resetGame();
-        playBackgroundMusic(); // Start music when restarting
+        playBackgroundMusic(true); // Start music when restarting
       }
     });
 
@@ -477,32 +913,27 @@
         const rect = canvas.getBoundingClientRect();
         const mouseX = e.clientX - rect.left;
         const mouseY = e.clientY - rect.top;
-        let yStart = 180;
-        for (let i = 0; i < settingsOptions.length; i++) {
-          const opt = settingsOptions[i];
-          if (opt.type === 'number') {
-            const textY = yStart + i * 50;
-            const sliderX = canvas.width / 2 + 70; // Match drawing coordinates
-            const sliderWidth = 260; // Match drawing width
-            const sliderY = textY - 10;
-            if (mouseX > sliderX && mouseX < sliderX + sliderWidth &&
-              mouseY > sliderY && mouseY < sliderY + 20) {
-              selectedSetting = i;
-              isDraggingSlider = true;
-              // Initial set on mousedown for immediate response
-              const clickRatio = (mouseX - sliderX) / sliderWidth;
-              let newValue = opt.min + clickRatio * (opt.max - opt.min);
-              newValue = Math.round(newValue / opt.step) * opt.step;
-              newValue = Math.max(opt.min, Math.min(opt.max, newValue));
-
-              if (opt.key === 'obstacleSpeed') {
-                obstacleSpeed = newValue;
-              } else {
-                ball[opt.key] = newValue;
-              }
-              opt.initialValue = newValue;
-              break;
-            }
+  const panelWidth = SETTINGS_LAYOUT.panelWidth;
+  const panelX = canvas.width / 2 - panelWidth / 2;
+  const sliderX = panelX + 360;
+  const sliderWidth = SETTINGS_LAYOUT.sliderWidth;
+        const { positions } = getSettingsLayoutInfo();
+        for (const [idx, rowCenterY] of positions.entries()) {
+          const opt = settingsOptions[idx];
+          if (opt.type !== 'number') {
+            continue;
+          }
+          const sliderY = rowCenterY - SETTINGS_LAYOUT.sliderHeight;
+          if (mouseX > sliderX && mouseX < sliderX + sliderWidth &&
+            mouseY > sliderY && mouseY < sliderY + SETTINGS_LAYOUT.sliderHeight) {
+            selectedSetting = idx;
+            isDraggingSlider = true;
+            const clickRatio = (mouseX - sliderX) / sliderWidth;
+            let newValue = opt.min + clickRatio * (opt.max - opt.min);
+            newValue = Math.round(newValue / opt.step) * opt.step;
+            newValue = Math.max(opt.min, Math.min(opt.max, newValue));
+            setSettingValue(opt, newValue);
+            break;
           }
         }
       }
@@ -516,18 +947,14 @@
   if (gameState === 'settings' && isDraggingSlider) {
         const opt = settingsOptions[selectedSetting];
         if (opt && opt.type === 'number') {
-          const sliderX = canvas.width / 2 + 70; // Match drawing coordinates
-          const sliderWidth = 260; // Match drawing width
+          const panelWidth = SETTINGS_LAYOUT.panelWidth;
+          const panelX = canvas.width / 2 - panelWidth / 2;
+          const sliderX = panelX + 360;
+          const sliderWidth = SETTINGS_LAYOUT.sliderWidth;
           let newValue = opt.min + ((mouseX - sliderX) / sliderWidth) * (opt.max - opt.min);
           newValue = Math.round(newValue / opt.step) * opt.step;
           newValue = Math.max(opt.min, Math.min(opt.max, newValue));
-
-          if (opt.key === 'obstacleSpeed') {
-            obstacleSpeed = newValue;
-          } else {
-            ball[opt.key] = newValue;
-          }
-          opt.initialValue = newValue; // Update stored value
+          setSettingValue(opt, newValue);
         }
       } else if (gameState === "menu") {
         menuHover = -1;
@@ -584,10 +1011,12 @@
           ball.grounded = false;
           ball.rotationSpeed = 0.4;
           ball.jumpsRemaining = ball.maxJumps;
+          playJumpSound(ball.jumpForce);
         } else if (ball.jumpsRemaining > 0) {
           ball.velocityY = -ball.jumpForce;
           ball.rotationSpeed = 0.4;
           ball.jumpsRemaining--;
+          playJumpSound(ball.jumpForce);
         }
       } else {
         // Simulate click for menus
@@ -611,18 +1040,14 @@
         
         const opt = settingsOptions[selectedSetting];
         if (opt && opt.type === 'number') {
-          const sliderX = canvas.width / 2 + 70; // Match drawing coordinates
-          const sliderWidth = 260; // Match drawing width
+          const panelWidth = SETTINGS_LAYOUT.panelWidth;
+          const panelX = canvas.width / 2 - panelWidth / 2;
+          const sliderX = panelX + 320;
+          const sliderWidth = SETTINGS_LAYOUT.sliderWidth;
           let newValue = opt.min + ((touchX - sliderX) / sliderWidth) * (opt.max - opt.min);
           newValue = Math.round(newValue / opt.step) * opt.step;
           newValue = Math.max(opt.min, Math.min(opt.max, newValue));
-
-          if (opt.key === 'obstacleSpeed') {
-            obstacleSpeed = newValue;
-          } else {
-            ball[opt.key] = newValue;
-          }
-          opt.initialValue = newValue;
+          setSettingValue(opt, newValue);
         }
       }
     });
@@ -652,19 +1077,10 @@
           if (menuOptions[selectedMenu] === "Play") {
             gameState = "playing";
             resetGame();
-            playBackgroundMusic(); // Start music when starting game
+            playBackgroundMusic(true); // Start music when starting game
           } else if (menuOptions[selectedMenu] === "Settings") {
             gameState = "settings";
-            // Initialize settings values when entering settings menu
-            settingsOptions.forEach(opt => {
-              if (opt.type === 'number') {
-                if (opt.key === 'obstacleSpeed') {
-                  opt.initialValue = obstacleSpeed;
-                } else {
-                  opt.initialValue = ball[opt.key];
-                }
-              }
-            });
+            syncAllSettings();
           } else if (menuOptions[selectedMenu] === "About") {
             gameState = "about";
           }
@@ -683,26 +1099,23 @@
           (e.code === "ArrowLeft" || e.code === "ArrowRight") &&
           settingsOptions[selectedSetting].type === 'number'
         ) {
-          // Adjust value with left/right arrow
           const opt = settingsOptions[selectedSetting];
-          let value = opt.key === 'obstacleSpeed' ? obstacleSpeed : ball[opt.key];
-          if (e.code === "ArrowLeft") {
-            value -= opt.step;
-          } else {
-            value += opt.step;
-          }
+          let value = getSettingValue(opt);
+          value += e.code === "ArrowLeft" ? -opt.step : opt.step;
           value = Math.max(opt.min, Math.min(opt.max, value));
           value = Math.round(value / opt.step) * opt.step;
-          if (opt.key === 'obstacleSpeed') {
-            obstacleSpeed = value;
-          } else {
-            ball[opt.key] = value;
-          }
-          opt.initialValue = value;
+          setSettingValue(opt, value);
+          e.preventDefault();
+        } else if (
+          (e.code === "ArrowLeft" || e.code === "ArrowRight") &&
+          settingsOptions[selectedSetting].type === 'toggle'
+        ) {
+          const opt = settingsOptions[selectedSetting];
+          toggleSetting(opt);
           e.preventDefault();
         } else if (e.code === "ArrowLeft") {
           // If on a special button, move left among them
-          const specialKeys = ['reset', 'commands', 'back'];
+          const specialKeys = SPECIAL_SETTING_KEYS;
           const specialIndices = settingsOptions
             .map((opt, i) => specialKeys.includes(opt.key) ? i : -1)
             .filter(i => i !== -1);
@@ -716,7 +1129,7 @@
           e.preventDefault();
         } else if (e.code === "ArrowRight") {
           // If on a special button, move right among them
-          const specialKeys = ['reset', 'commands', 'back'];
+          const specialKeys = SPECIAL_SETTING_KEYS;
           const specialIndices = settingsOptions
             .map((opt, i) => specialKeys.includes(opt.key) ? i : -1)
             .filter(i => i !== -1);
@@ -730,18 +1143,19 @@
           e.preventDefault();
         } else if (e.code === "ArrowLeft" || e.code === "ArrowRight") {
           e.preventDefault();
+        } else if (
+          (e.code === "Enter" || e.code === "Space") &&
+          settingsOptions[selectedSetting].type === 'toggle'
+        ) {
+          toggleSetting(settingsOptions[selectedSetting]);
+          e.preventDefault();
         } else if ((e.code === "Enter" || e.code === "Space") && settingsOptions[selectedSetting].key === 'reset') {
-          // Reset all settings to their default values
           settingsOptions.forEach(opt2 => {
-            if (opt2.type === 'number') {
-              if (opt2.key === 'obstacleSpeed') {
-                obstacleSpeed = opt2.defaultValue;
-              } else {
-                ball[opt2.key] = opt2.defaultValue;
-              }
-              opt2.initialValue = opt2.defaultValue;
+            if (opt2.type === 'number' || opt2.type === 'toggle') {
+              setSettingValue(opt2, opt2.defaultValue);
             }
           });
+          syncAllSettings();
           e.preventDefault();
         } else if ((e.code === "Enter" || e.code === "Space") && settingsOptions[selectedSetting].key === 'commands') {
           gameState = 'commands';
@@ -775,7 +1189,7 @@
         }
         gameState = "playing";
         resetGame();
-        playBackgroundMusic(); // Start music when restarting
+        playBackgroundMusic(true); // Start music when restarting
         e.preventDefault();
         return;
       }
@@ -787,11 +1201,13 @@
           ball.grounded = false;
           ball.rotationSpeed = 0.4;
           ball.jumpsRemaining = ball.maxJumps; // Reset jumps when grounded jump occurs
+          playJumpSound(ball.jumpForce);
           e.preventDefault();
         } else if (ball.jumpsRemaining > 0) { // For the "one jump" in mid-air/bounce
           ball.velocityY = -ball.jumpForce;
           ball.rotationSpeed = 0.4;
           ball.jumpsRemaining--; // Consume one extra jump
+          playJumpSound(ball.jumpForce);
           e.preventDefault();
         }
       }
@@ -942,10 +1358,10 @@
       ctx.clearRect(0, 0, canvas.width, canvas.height);
       // --- Card/Panel Background ---
 
-      const panelWidth = 700;
-      const panelHeight = 520;
+    const panelWidth = SETTINGS_LAYOUT.panelWidth;
+    const panelHeight = SETTINGS_LAYOUT.basePanelHeight;
       const panelX = canvas.width / 2 - panelWidth / 2;
-      const panelY = 70;
+    const panelY = SETTINGS_LAYOUT.panelTop;
       ctx.save();
       ctx.globalAlpha = 0.96;
       ctx.beginPath();
@@ -958,60 +1374,60 @@
       ctx.globalAlpha = 1.0;
       ctx.restore();
       // --- Title ---
-      ctx.font = "bold 40px Courier New, monospace";
+      ctx.font = "bold 36px Courier New, monospace";
       ctx.fillStyle = "#00FF99";
       ctx.textAlign = "center";
       ctx.shadowColor = "#00FF99";
       ctx.shadowBlur = 20;
-      ctx.fillText("Settings", canvas.width / 2, 130);
+      ctx.fillText("Settings", canvas.width / 2, panelY + 40);
       ctx.shadowBlur = 0;
 
       // --- Settings List ---
-      ctx.font = "bold 28px Courier New, monospace";
+      ctx.font = "bold 26px Courier New, monospace";
       ctx.textAlign = "left";
-      let yStart = 180;
+      let yStart = SETTINGS_LAYOUT.startY;
       let lastGroup = '';
       let y = yStart;
       // Collect indices for the three special buttons
-      const specialKeys = ['reset', 'commands', 'back'];
+      const specialKeys = SPECIAL_SETTING_KEYS;
       const specialButtonIndices = settingsOptions
         .map((opt, i) => specialKeys.includes(opt.key) ? i : -1)
         .filter(i => i !== -1);
       // Render all settings except the three special buttons
       for (let i = 0; i < settingsOptions.length; i++) {
         const opt = settingsOptions[i];
-        if (specialKeys.includes(opt.key)) continue; // Skip special buttons here
-        let value = opt.key === 'obstacleSpeed' ? obstacleSpeed : ball[opt.key];
+        if (SPECIAL_SETTING_KEYS.includes(opt.key)) continue; // Skip special buttons here
+        const value = getSettingValue(opt);
         const textY = y;
         // --- Group Header ---
         if (opt.group && opt.group !== lastGroup) {
-          ctx.font = "bold 24px Courier New, monospace";
+          ctx.font = "bold 22px Courier New, monospace";
           ctx.fillStyle = "#FFD700";
           ctx.textAlign = "left";
-          ctx.fillText(opt.group, panelX + 40, y);
+          ctx.fillText(opt.group, panelX + 50, y);
           // Underline
           ctx.strokeStyle = "#FFD700";
           ctx.lineWidth = 2;
           ctx.beginPath();
-          ctx.moveTo(panelX + 40, y + 6);
-          ctx.lineTo(panelX + 90, y + 6);
+          ctx.moveTo(panelX + 50, y + 6);
+          ctx.lineTo(panelX + 100, y + 6);
           ctx.stroke();
-          y += 42;
+          y += SETTINGS_LAYOUT.groupGap;
           lastGroup = opt.group;
-          ctx.font = "bold 28px Courier New, monospace";
+          ctx.font = "bold 26px Courier New, monospace";
         }
         // --- Setting Label ---
         ctx.fillStyle = i === selectedSetting ? "#00FF99" : "#fff";
         ctx.textAlign = "left";
-        ctx.font = "bold 28px Courier New, monospace";
-        ctx.fillText(opt.label + (opt.type === 'number' ? ':' : ''), panelX + 40, y);
+        ctx.font = "bold 26px Courier New, monospace";
+        ctx.fillText(opt.label + (opt.type === 'number' ? ':' : ''), panelX + 50, y);
 
         if (opt.type === 'number') {
           // --- Modern Slider ---
-          const sliderX = panelX + 320;
-          const sliderY = y - 18;
-          const sliderWidth = 260;
-          const sliderHeight = 18;
+          const sliderX = panelX + 360;
+          const sliderY = y - SETTINGS_LAYOUT.sliderHeight;
+          const sliderWidth = SETTINGS_LAYOUT.sliderWidth;
+          const sliderHeight = SETTINGS_LAYOUT.sliderHeight;
           const sliderKnobRadius = 16;
 
           // Slider bar gradient
@@ -1055,19 +1471,61 @@
           // --- Value Text ---
           ctx.fillStyle = i === selectedSetting ? "#00FF99" : "#fff";
           ctx.textAlign = "right";
+          ctx.font = "bold 24px Courier New, monospace";
+          ctx.fillText(value.toFixed(2).replace(/\.0+$/, ''), sliderX + sliderWidth + 80, y + 2);
           ctx.font = "bold 26px Courier New, monospace";
-          ctx.fillText(value.toFixed(2).replace(/\.00$/, ''), sliderX + sliderWidth + 70, y + 2);
-          ctx.font = "bold 28px Courier New, monospace";
+        } else if (opt.type === 'toggle') {
+          const toggleX = panelX + 360;
+          const toggleY = y - SETTINGS_LAYOUT.toggleHeight;
+          const toggleWidth = SETTINGS_LAYOUT.toggleWidth;
+          const toggleHeight = SETTINGS_LAYOUT.toggleHeight;
+          const knobPadding = 6;
+          const knobDiameter = toggleHeight - knobPadding * 2;
+          const isOn = Boolean(value);
+
+          ctx.save();
+          ctx.beginPath();
+          ctx.roundRect(toggleX, toggleY, toggleWidth, toggleHeight, 18);
+          const baseFill = isOn ? "#00FF99" : "#555";
+          const selectedFill = isOn ? "#4effb9" : "#777";
+          ctx.fillStyle = i === selectedSetting ? selectedFill : baseFill;
+          if (i === selectedSetting) {
+            ctx.shadowColor = isOn ? "#00FF99" : "#999";
+            ctx.shadowBlur = 18;
+          }
+          ctx.fill();
+          ctx.shadowBlur = 0;
+          ctx.lineWidth = 2;
+          ctx.strokeStyle = i === selectedSetting ? "#222" : "#333";
+          ctx.stroke();
+
+          const knobX = isOn
+            ? toggleX + toggleWidth - knobPadding - knobDiameter
+            : toggleX + knobPadding;
+          const knobCenterY = toggleY + toggleHeight / 2;
+          ctx.beginPath();
+          ctx.arc(knobX + knobDiameter / 2, knobCenterY, knobDiameter / 2, 0, Math.PI * 2);
+          ctx.fillStyle = "#fff";
+          ctx.fill();
+          ctx.lineWidth = 2;
+          ctx.strokeStyle = i === selectedSetting ? "#222" : "#777";
+          ctx.stroke();
+
+          ctx.font = "bold 16px Courier New, monospace";
+          ctx.textAlign = "center";
+          ctx.fillStyle = isOn ? "#0f2e26" : "#ddd";
+          ctx.fillText(isOn ? "ON" : "OFF", toggleX + toggleWidth / 2, knobCenterY + 5);
+          ctx.restore();
         }
-        y += 54;
+        y += SETTINGS_LAYOUT.rowGap;
       }
 
       // --- Special Buttons Row (Reset, Commands, Back) ---
-      const buttonRowY = y + 10;
-      const buttonWidth = 140;
-      const buttonHeight = 40;
-      const buttonSpacing = 30;
-      const totalRowWidth = buttonWidth * 3 + buttonSpacing * 2;
+      const buttonRowY = y - 10;
+      const buttonWidth = SETTINGS_LAYOUT.buttonWidth;
+      const buttonHeight = SETTINGS_LAYOUT.buttonHeight;
+      const buttonSpacing = SETTINGS_LAYOUT.buttonSpacing;
+  const totalRowWidth = buttonWidth * specialButtonIndices.length + buttonSpacing * Math.max(0, specialButtonIndices.length - 1);
       const startX = canvas.width / 2 - totalRowWidth / 2;
       for (let j = 0; j < specialButtonIndices.length; j++) {
         const i = specialButtonIndices[j];
@@ -1108,52 +1566,11 @@
       }
       y = buttonRowY + buttonHeight + 10;
 
-      // --- Tooltip Box for Selected Setting ---
-      const selectedOpt = settingsOptions[selectedSetting];
-      if (selectedOpt && selectedOpt.tooltip) {
-        const tooltipText = selectedOpt.tooltip;
-        ctx.font = "20px Courier New, monospace";
-        ctx.textAlign = "center";
-        // Tooltip box size
-        const tooltipWidth = ctx.measureText(tooltipText).width + 40;
-        const tooltipHeight = 38;
-        const tooltipX = canvas.width / 2 - tooltipWidth / 2;
-        const tooltipY = panelY + panelHeight + 18;
-        // Box
-        ctx.save();
-        ctx.globalAlpha = 0.95;
-        ctx.beginPath();
-        ctx.roundRect(tooltipX, tooltipY, tooltipWidth, tooltipHeight, 16);
-        ctx.fillStyle = "#23272f";
-        ctx.shadowColor = "#FFD700";
-        ctx.shadowBlur = 12;
-        ctx.fill();
-        ctx.shadowBlur = 0;
-        ctx.globalAlpha = 1.0;
-        ctx.restore();
-        // Pointer
-        ctx.save();
-        ctx.beginPath();
-        ctx.moveTo(canvas.width / 2 - 10, tooltipY);
-        ctx.lineTo(canvas.width / 2 + 10, tooltipY);
-        ctx.lineTo(canvas.width / 2, tooltipY - 12);
-        ctx.closePath();
-        ctx.fillStyle = "#23272f";
-        ctx.shadowColor = "#FFD700";
-        ctx.shadowBlur = 8;
-        ctx.fill();
-        ctx.shadowBlur = 0;
-        ctx.restore();
-        // Text
-        ctx.fillStyle = "#FFD700";
-        ctx.fillText(tooltipText, canvas.width / 2, tooltipY + 25);
-      }
-
       // --- Footer Help Text ---
-      ctx.font = "20px Courier New, monospace";
-      ctx.fillStyle = "#fff";
+      ctx.font = "16px Courier New, monospace";
+      ctx.fillStyle = "#aaa";
       ctx.textAlign = "center";
-      ctx.fillText("Use ↑/↓ to select, ←/→ or drag to adjust, Enter/Space/Click to activate, Back to return", canvas.width / 2, panelY + panelHeight + 70);
+      ctx.fillText("Use ↑/↓ to select, ←/→ or drag to adjust, Enter/Space/Click to activate", canvas.width / 2, panelY + panelHeight - 15);
     }
 
     function drawCommands() {
@@ -1227,6 +1644,8 @@
         ctx.fillRect(0, canvas.height - GROUND_HEIGHT, canvas.width, GROUND_HEIGHT);
 
         // --- Autopilot Logic ---
+        const wasGrounded = ball.grounded;
+        let groundImpactVelocity = 0;
         if (autopilotEnabled) {
           // Find the next obstacle in front of the ball
           let nextObs = null;
@@ -1254,6 +1673,7 @@
               ball.grounded = false;
               ball.rotationSpeed = 0.4;
               ball.jumpsRemaining = ball.maxJumps;
+              playJumpSound(ball.jumpForce);
             }
           }
         }
@@ -1264,7 +1684,9 @@
         // Collision with ground
         if (ball.y > canvas.height - ball.height - GROUND_HEIGHT) {
           ball.y = canvas.height - ball.height - GROUND_HEIGHT;
-          if (Math.abs(ball.velocityY) > 2) {
+          const impactVelocity = Math.abs(ball.velocityY);
+          groundImpactVelocity = impactVelocity;
+          if (impactVelocity > 2) {
             ball.velocityY = -ball.velocityY * ball.bounciness;
           } else {
             ball.velocityY = 0;
@@ -1274,6 +1696,10 @@
           ball.rotationSpeed = ball.rotationSpeed > 0 ? 0.03 : -0.03;
         } else {
           ball.grounded = false;
+        }
+
+        if (!wasGrounded && ball.grounded && groundImpactVelocity > 0.5) {
+          playLandingSound('ground', groundImpactVelocity);
         }
 
         if (Math.abs(ball.rotationSpeed) > 0.03) {
@@ -1301,6 +1727,8 @@
             ball.y < obstacles[i].y + obstacles[i].height &&
             ball.y + ball.height > obstacles[i].y
           ) {
+            const impactSpeed = Math.abs(ball.velocityY) + obstacles[i].speed;
+            playLandingSound('grass', impactSpeed);
             damageFlashTimer = 30;
             gameOver = true;
             waitingForRestart = true;
@@ -1339,7 +1767,8 @@
               speed: getDynamicObstacleSpeed() + (Math.random() - 0.5) * 1.5 // add some random speed
             });
           }
-          nextStarFrame = frames + Math.floor(300 + Math.random() * 400);
+          // Balanced spawn rate: 5-10 seconds between spawns
+          nextStarFrame = frames + Math.floor(360 + Math.random() * 300);
         }
 
         // --- Star2 Spawning (speed boost, only if score >= 20 and no power-ups active/cooldown) ---
@@ -1365,7 +1794,8 @@
               speed: getDynamicObstacleSpeed() + (Math.random() - 0.5) * 1.5
             });
           }
-          nextStar2Frame = frames + Math.floor(800 + Math.random() * 1000); // Much less frequent than regular stars
+          // Balanced spawn rate: 10-20 seconds between spawns (rarer than jump boost)
+          nextStar2Frame = frames + Math.floor(600 + Math.random() * 600);
         }
 
         // --- Update and Draw Stars ---
@@ -1389,12 +1819,13 @@
             ball.y < star.y + star.size &&
             ball.y + ball.height > star.y
           ) {
-            // Only activate if no other power-up is active
-            if (!powerUpActive && !speedBoostActive) {
+            // Only activate if no other power-up is active or on cooldown
+            if (!powerUpActive && !speedBoostActive && !powerUpCooldown) {
               powerUpActive = true;
               powerUpTimer = POWER_UP_DURATION;
               powerUpTextTimer = POWER_UP_TEXT_DURATION;
               ball.jumpForce = POWER_JUMP_FORCE;
+              playJumpBoostSound(); // Play jump boost sound effect
             }
             stars.splice(i, 1);
             i--;
@@ -1427,12 +1858,13 @@
             ball.y < star2.y + star2.size &&
             ball.y + ball.height > star2.y
           ) {
-            // Only activate if no other power-up is active
-            if (!powerUpActive && !speedBoostActive) {
+            // Only activate if no other power-up is active or on cooldown
+            if (!powerUpActive && !speedBoostActive && !powerUpCooldown) {
               speedBoostActive = true;
               speedBoostTimer = SPEED_BOOST_DURATION;
               speedBoostTextTimer = SPEED_BOOST_TEXT_DURATION;
               grassImmunity = true;
+              playSpeedBoostSound(); // Play speed boost sound effect
             }
             stars2.splice(i, 1);
             i--;
@@ -1460,6 +1892,7 @@
           if (powerUpTimer <= 0) {
             powerUpActive = false;
             ball.jumpForce = NORMAL_JUMP_FORCE;
+            playPowerUpEndSound(); // Play power-up ending sound
             // Start cooldown period
             powerUpCooldown = true;
             powerUpCooldownTimer = POWER_UP_COOLDOWN_DURATION;
@@ -1482,6 +1915,7 @@
           if (speedBoostTimer <= 0) {
             speedBoostActive = false;
             grassImmunity = false;
+            playPowerUpEndSound(); // Play power-up ending sound
             // Start cooldown period
             powerUpCooldown = true;
             powerUpCooldownTimer = POWER_UP_COOLDOWN_DURATION;
@@ -1503,7 +1937,7 @@
           ctx.textAlign = "center";
           ctx.shadowColor = "#FFD700";
           ctx.shadowBlur = 20;
-          ctx.fillText("Power Up!", ball.x + ball.width / 2, ball.y - 20);
+          ctx.fillText("Jump Boost!", ball.x + ball.width / 2, ball.y - 20);
           ctx.restore();
           powerUpTextTimer--;
         }
@@ -1519,6 +1953,42 @@
           ctx.fillText("Speed Boost!", ball.x + ball.width / 2, ball.y - 60);
           ctx.restore();
           speedBoostTextTimer--;
+        }
+
+        // --- Power-up Timer Display ---
+        if (powerUpActive) {
+          const timeLeft = (powerUpTimer / 60).toFixed(1);
+          ctx.save();
+          ctx.font = "bold 18px Courier New, monospace";
+          ctx.fillStyle = "#FFD700";
+          ctx.textAlign = "left";
+          ctx.shadowColor = "#FFD700";
+          ctx.shadowBlur = 10;
+          ctx.fillText("⭐ Jump Boost: " + timeLeft + "s", 30, canvas.height - 30);
+          ctx.restore();
+        }
+        
+        if (speedBoostActive) {
+          const timeLeft = (speedBoostTimer / 60).toFixed(1);
+          ctx.save();
+          ctx.font = "bold 18px Courier New, monospace";
+          ctx.fillStyle = "#00CCFF";
+          ctx.textAlign = "left";
+          ctx.shadowColor = "#00CCFF";
+          ctx.shadowBlur = 10;
+          ctx.fillText("⚡ Speed Boost: " + timeLeft + "s", 30, canvas.height - 10);
+          ctx.restore();
+        }
+        
+        // --- Cooldown Indicator ---
+        if (powerUpCooldown && !powerUpActive && !speedBoostActive) {
+          const cooldownLeft = (powerUpCooldownTimer / 60).toFixed(1);
+          ctx.save();
+          ctx.font = "bold 16px Courier New, monospace";
+          ctx.fillStyle = "#888";
+          ctx.textAlign = "left";
+          ctx.fillText("Power-up Cooldown: " + cooldownLeft + "s", 30, canvas.height - 30);
+          ctx.restore();
         }
 
         ctx.fillStyle = "white";
@@ -1669,7 +2139,7 @@
     // Obstacle/star speedup factor
     function getDynamicObstacleSpeed() {
       // Use the base obstacleSpeed from settings, but add a factor for score
-      const base = settingsOptions.find(opt => opt.key === 'obstacleSpeed').initialValue;
+      const base = obstacleSpeed;
       return base + Math.min(score * 0.07, 10); // up to +10 speed
     }
   </script>
